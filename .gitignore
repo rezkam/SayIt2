@@ -1,0 +1,4 @@
+.agents/
+.build/
+*.app
+.DS_Store
