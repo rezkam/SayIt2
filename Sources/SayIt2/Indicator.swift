@@ -1,6 +1,6 @@
 import AppKit
 
-/// The black pill that drops from under the notch while SayIt 2 is listening.
+/// The black pill that rises at the bottom of the screen, just above the Dock, while SayIt 2 is listening.
 @MainActor
 final class Indicator {
     enum State: Equatable { case hidden, listening, handsFree, finishing, waiting }
@@ -49,16 +49,15 @@ final class Indicator {
         let visible = view.state != .hidden || view.message != nil
         guard visible else { return hide() }
         guard let screen = NSScreen.main else { return }
-        // Hang just below the notch, or below the menu bar on displays without one.
-        let top = max(screen.safeAreaInsets.top, screen.frame.maxY - screen.visibleFrame.maxY)
+        // Sit just above the Dock. With the Dock hidden or on a side, that is just above the screen's bottom edge.
         let size = view.fittingSize
-        let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - top - 6 - size.height,
+        let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.visibleFrame.minY + 8,
                            width: size.width, height: size.height)
         if isShown {
             panel.setFrame(frame, display: true)
         } else {
             isShown = true
-            panel.setFrame(frame.offsetBy(dx: 0, dy: size.height + 12), display: true)
+            panel.setFrame(frame.offsetBy(dx: 0, dy: -(size.height + 12)), display: true)   // rise from below
             panel.alphaValue = 0
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
@@ -82,7 +81,7 @@ final class Indicator {
         energy = 0
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.15
-            panel.animator().setFrame(panel.frame.offsetBy(dx: 0, dy: panel.frame.height + 12), display: true)
+            panel.animator().setFrame(panel.frame.offsetBy(dx: 0, dy: -(panel.frame.height + 12)), display: true)
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated {

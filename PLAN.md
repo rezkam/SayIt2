@@ -40,7 +40,8 @@ scripts are in `.agents/probes/` (not committed).
 
 Settled on 2026-11-19.
 
-1. **Indicator:** concept A (drop pill), voice bars only, white accent, size M, menu bar glyph 2 (bars).
+1. **Indicator:** concept A (pill), voice bars only, white accent, size M, menu bar glyph 2 (bars).
+   Placed at the bottom of the screen, just above the Dock.
 2. **Live text:** typed straight into the focused text field while you speak, with corrections.
    The pill shows no text (except a short message when something is wrong).
 3. **Focus:** the text field that was focused when dictation started is the target. If focus
@@ -217,8 +218,9 @@ stores no audio and no transcripts.
 
 ## 10. Indicator and menu bar
 
-Concept A from `docs/mockups.html`: a black pill that drops from under the notch (or the top
-edge on other displays) with five white bars that follow your voice.
+The pill from concept A in `docs/mockups.html`, moved to the bottom of the screen: a black pill
+that rises just above the Dock (or the bottom edge when the Dock is hidden or on a side), with
+five white bars that follow your voice. The mockups still show it at the top.
 
 | State | Pill |
 | --- | --- |
