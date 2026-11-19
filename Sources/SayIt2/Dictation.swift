@@ -15,7 +15,8 @@ final class Dictation {
     /// Everything is done. Carries a message if something went wrong.
     var onEnd: ((String?) -> Void)?
 
-    private let provider: Provider
+    private let config: Config
+    private var provider: Provider { config.provider }
     private let typist: Typist
     private let job: Typist.Job
     private let mic = Mic()
@@ -34,11 +35,11 @@ final class Dictation {
     private var sawKeyDown = false
     private var ended = false
 
-    init(provider: Provider, handsFree: Bool, typist: Typist) throws {
-        self.provider = provider
+    init(config: Config, handsFree: Bool, typist: Typist) throws {
+        self.config = config
         self.handsFree = handsFree
         self.typist = typist
-        if provider == .deepgram, Credentials.deepgramKey == nil { throw Problem(message: "Set Deepgram key") }
+        if config.provider == .deepgram, config.deepgramKey == nil { throw Problem(message: "Add the Deepgram key in the config") }
         guard let job = typist.begin() else { throw Problem(message: "No app to type into") }
         self.job = job
 
@@ -49,7 +50,7 @@ final class Dictation {
         }
         mic.onInterrupted = { [weak self] in self?.stop() }
         do {
-            try mic.start(sampleRate: provider.sampleRate)
+            try mic.start(sampleRate: config.provider.sampleRate)
         } catch {
             typist.keepTyped(job)
             throw error
@@ -84,10 +85,8 @@ final class Dictation {
         let stream: Transcriber
         if provider == .chatgpt {
             stream = ChatGPTStream()
-        } else if let key = Credentials.deepgramKey {
-            stream = DeepgramStream(key: key)
         } else {
-            return complete(problem: "Set Deepgram key")
+            stream = DeepgramStream(config: config)
         }
         self.stream = stream
         sent = 0

@@ -1,30 +1,23 @@
 import Foundation
 
-/// Deepgram Nova-3 live streaming: raw PCM16 16 kHz mono binary frames, JSON results.
+/// Deepgram live streaming: raw PCM16 16 kHz mono binary frames, JSON results.
+/// The query parameters (model, language, formatting and so on) come from the config file.
 final class DeepgramStream: Transcriber {
-    private let key: String
+    private let config: Config
     private var finishing = false
 
-    init(key: String) {
-        self.key = key
+    init(config: Config) {
+        self.config = config
     }
 
     override func request() throws -> URLRequest {
-        var url = URLComponents(string: "wss://api.deepgram.com/v1/listen")!
-        url.queryItems = [
-            URLQueryItem(name: "model", value: "nova-3"),
-            URLQueryItem(name: "language", value: "multi"),       // detects English and Persian
-            URLQueryItem(name: "language_hint", value: "en"),
-            URLQueryItem(name: "language_hint", value: "fa"),
-            URLQueryItem(name: "encoding", value: "linear16"),
-            URLQueryItem(name: "sample_rate", value: String(Int(Provider.deepgram.sampleRate))),
-            URLQueryItem(name: "channels", value: "1"),
-            URLQueryItem(name: "interim_results", value: "true"), // required for live text; the default is false
-            URLQueryItem(name: "endpointing", value: "300"),
-            // No smart_format and no punctuate: plain lowercase text without punctuation.
-        ]
-        var request = URLRequest(url: url.url!)
-        request.setValue("Token \(key)", forHTTPHeaderField: "Authorization")
+        guard var url = URLComponents(string: config.deepgramURL) else {
+            throw Problem(message: "Deepgram url in the config is not valid", retryable: false)
+        }
+        url.queryItems = config.deepgramParameters
+        guard let address = url.url else { throw Problem(message: "Deepgram url in the config is not valid", retryable: false) }
+        var request = URLRequest(url: address)
+        request.setValue("Token \(config.deepgramKey ?? "")", forHTTPHeaderField: "Authorization")
         return request
     }
 
@@ -57,8 +50,11 @@ final class DeepgramStream: Transcriber {
     }
 
     override func closed(status: Int) -> Problem {
-        status == 401 || status == 403
-            ? Problem(message: "Deepgram key rejected", retryable: false)
-            : Problem(message: "Can't reach Deepgram")
+        switch status {
+        case 401: Problem(message: "Deepgram key rejected", retryable: false)
+        case 403: Problem(message: "Deepgram: no access to this model", retryable: false)   // often a misspelled model name
+        case 400: Problem(message: "Deepgram rejected the config", retryable: false)
+        default: Problem(message: "Can't reach Deepgram")
+        }
     }
 }

@@ -58,7 +58,7 @@ final class ChatGPTStream: Transcriber {
             guard let id = message["utterance_id"] as? String, let text = message["text"] as? String else { return }
             if texts[id] == nil { utterances.append(id) }
             texts[id] = text
-            onInterim?(withoutPunctuation(utterances.compactMap { texts[$0] }.joined(separator: " ")))
+            onInterim?(utterances.compactMap { texts[$0]?.trimmingCharacters(in: .whitespaces) }.joined(separator: " "))
         case "session.updated":
             if (message["session"] as? [String: Any])?["status"] as? String == "closed" { end(nil) }
         case "session.stop_requested":
@@ -82,23 +82,4 @@ final class ChatGPTStream: Transcriber {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
         send(text: String(decoding: data, as: UTF8.self))
     }
-}
-
-/// Removes punctuation marks, keeping those inside a word or number ("don't", "3.5", "well-known").
-func withoutPunctuation(_ text: String) -> String {
-    let marks: Set<Character> = [".", ",", "!", "?", ";", ":", "\"", "'", "(", ")", "[", "]", "{", "}", "-",
-                                 "…", "\u{2013}", "\u{2014}", "“", "”", "‘", "’", "«", "»", "،", "؛", "؟"]
-    let characters = Array(text)
-    var result = ""
-    for (index, character) in characters.enumerated() {
-        if marks.contains(character) {
-            let inside = index > 0 && index < characters.count - 1
-                && (characters[index - 1].isLetter || characters[index - 1].isNumber)
-                && (characters[index + 1].isLetter || characters[index + 1].isNumber)
-            result.append(inside ? character : " ")
-        } else {
-            result.append(character)
-        }
-    }
-    return result.split(whereSeparator: \.isWhitespace).joined(separator: " ")
 }

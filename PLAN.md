@@ -45,11 +45,15 @@ Settled on 2026-11-19.
    The pill shows no text (except a short message when something is wrong).
 3. **Focus:** the app that was focused when dictation started is the target. If another app
    comes to the front, typing pauses and resumes when the target app is back.
-4. **Punctuation:** none. Deepgram is asked for plain text. ChatGPT text has punctuation marks
-   stripped locally (apostrophes and marks inside a word or number are kept, capitals are kept).
+4. **Text as returned:** ChatGPT text is typed exactly as ChatGPT returns it, punctuation included.
+   Deepgram returns plain lowercase text unless formatting is enabled in the config file.
 5. **ChatGPT credentials:** read `~/.codex/auth.json` read-only on every connection, never refresh.
 6. **Length limit:** auto-finish at 4 min 45 s on ChatGPT (its sessions last 5 minutes), no cap on Deepgram.
 7. **Name:** the app is "SayIt 2" everywhere; `sayit2` or `SayIt2` where a space is not allowed.
+8. **Settings:** one text file, `~/.config/sayit2/config`, opened from the menu with "Edit Config…".
+   It holds the provider, the Deepgram key, the Deepgram server, and every Deepgram parameter.
+   No Keychain, no settings window.
+9. **No tests:** no test code or test tooling in the project. Testing is done by hand.
 
 ## 3. Shape of the app
 
@@ -63,15 +67,19 @@ About 1,200 lines including comments.
 | `Audio.swift` | Microphone tap, one conversion to mono PCM16 at the provider's rate, voice level |
 | `Dictation.swift` | One recording from key press to inserted text: buffer, timeouts, retry |
 | `Transcriber.swift` | One streaming WebSocket connection, shared by both providers |
-| `ChatGPT.swift` | ChatGPT stream messages, punctuation stripping |
-| `Deepgram.swift` | Deepgram stream messages |
+| `ChatGPT.swift` | ChatGPT stream messages |
+| `Deepgram.swift` | Deepgram stream messages; parameters come from the config file |
 | `Indicator.swift` | The floating indicator |
 | `Typist.swift` | Live typing into the target app, corrections, focus waiting |
-| `Credentials.swift` | Keychain (Deepgram key), read-only ChatGPT token file |
-| `Config.swift` | `~/.config/sayit2/config` (plain `key = value` text) |
+| `Credentials.swift` | Read-only ChatGPT token file |
+| `Config.swift` | The settings file: reading it, creating it with every option listed, changing the provider line |
 
-Config file contents: `provider = chatgpt` or `provider = deepgram`. The menu writes the same
-file. Nothing else is configurable.
+The config file is plain `key = value` text, read before every dictation, so a saved change
+applies to the next one. It is created on first use with every option listed and explained.
+Lines starting with `deepgram.` (other than the key and the server) are passed to Deepgram as
+query parameters. `encoding`, `sample_rate` and `channels` are fixed by the app because they
+describe the audio it sends. The menu's provider choice rewrites only the `provider` line.
+The file is created with owner-only permissions because it holds the Deepgram key.
 
 ## 4. Audio
 
@@ -95,10 +103,12 @@ file. Nothing else is configurable.
 6. No asset upload, no batch fallback.
 
 **Deepgram Nova-3**
-1. Open `wss://api.deepgram.com/v1/listen` with `Authorization: Token`, query:
+1. Open the server from the config (default `wss://api.deepgram.com/v1/listen`) with
+   `Authorization: Token`. Query parameters come from the config. The defaults are
    `model=nova-3`, `language=multi`, `language_hint=en`, `language_hint=fa`,
-   `encoding=linear16`, `sample_rate=16000`, `channels=1`, `interim_results=true`,
-   `endpointing=300`. No `smart_format`, no `punctuate`.
+   `interim_results=true`, `endpointing=300`, with no `smart_format` or `punctuate`.
+   `model` is always sent, because without it Deepgram falls back to its old `base` model.
+   Flux models are not supported: they use `/v2/listen`, a different protocol, and have no Persian.
 2. Text: finals (`is_final: true`) are appended and never change. The newest interim
    replaces the previous interim after them.
 3. Stop: send `CloseStream`, read until `Metadata` or a clean close.
@@ -164,8 +174,7 @@ Apps that ignore synthetic Unicode events will not receive text.
 
 ## 8. Credentials
 
-- Deepgram: one Keychain generic-password item owned by SayIt 2. Set through
-  "Set Deepgram API Key…" in the menu (a small secure text prompt).
+- Deepgram: the `deepgram.api_key` line in the config file (owner-only file permissions).
 - ChatGPT: see decision 5. The token's expiry is checked locally before connecting so the
   message is clear ("open ChatGPT to sign in") instead of a failed connection.
 
@@ -183,7 +192,8 @@ back so text already typed is not erased and retyped.
 | Reconnect on ChatGPT | Replays the recording, paced at about 8x real time |
 | ChatGPT asks the client to stop (`session.stop_requested`) | Finish normally |
 | ChatGPT token expired, missing, or rejected | "Open ChatGPT to sign in". The file is re-read on each retry |
-| Deepgram key missing or rejected | "Set Deepgram key" |
+| Deepgram key missing | "Add the Deepgram key in the config" |
+| Deepgram refuses the connection | 401 "key rejected", 403 "no access to this model" (often a misspelled model name), 400 "rejected the config". Not retried |
 | Microphone missing, denied, or changed mid-recording | Cannot be resumed: stop and finish with what was captured |
 | Retries exhausted | Keep the text typed so far, show the reason for 3 s, return to idle |
 
@@ -217,18 +227,24 @@ spaces. It never takes focus. No sounds anywhere.
 Menu bar icon (bars glyph): normal when ready, red while recording, dimmed with a badge when
 something is missing (Accessibility, microphone, or the selected provider's credentials).
 
-## 11. Build and run
+## 11. Build, sign, version
 
-- `xcrun swift build -c release`, then a short script assembles `SayIt 2.app`
-  (`LSUIElement`, microphone usage text) and signs it with the local signing identity taken
-  from an environment variable, so Accessibility and Microphone grants survive rebuilds.
+- `bash scripts/build-app.sh` builds `build/SayIt 2.app` and signs it with the Developer ID
+  certificate (hardened runtime, secure timestamp, microphone entitlement).
+- `bash scripts/build-app.sh --notarize` also submits it to Apple's notary service and staples
+  the ticket, so it opens on any Mac without a warning.
+- The signing identity and notary profile come from environment variables
+  (`SAYIT2_*`, falling back to the `SPEAKFLOW_*` ones already set up). Nothing identifying is
+  stored in the repository.
+- Version: the `VERSION` file. Build number: the number of commits. The menu's first line shows
+  both, for example "SayIt 2  0.2.0 (build 6)".
 - Launch through Finder or `open`, not by running the binary from a terminal.
 
-## 12. Manual verification (no automated tests)
+## 12. Manual verification (done by hand, no test code)
 
 Checked so far:
 
-- Both provider classes transcribe a recorded phrase end to end (English on both; ChatGPT text has no punctuation).
+- Both provider classes transcribe a recorded phrase end to end (English on both).
 - The app builds, is signed, launches as a menu bar app, and reports Accessibility and Microphone as granted.
 - The menu bar item is registered and positioned in the visible part of the menu bar.
 - Key events SayIt 2 posts carry its tag through to the hotkey listener.

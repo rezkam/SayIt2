@@ -1,33 +1,6 @@
 import Foundation
-import Security
 
 enum Credentials {
-    private static let item: [String: Any] = [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "sayit2",
-        kSecAttrAccount as String: "deepgram-api-key",
-    ]
-
-    /// The Deepgram API key, kept in the login Keychain.
-    static var deepgramKey: String? {
-        get {
-            var query = item
-            query[kSecReturnData as String] = true
-            var result: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-            return String(data: data, encoding: .utf8)
-        }
-        set {
-            let key = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let data = [kSecValueData as String: Data(key.utf8)]
-            if key.isEmpty {
-                SecItemDelete(item as CFDictionary)
-            } else if SecItemUpdate(item as CFDictionary, data as CFDictionary) == errSecItemNotFound {
-                SecItemAdd(item.merging(data) { $1 } as CFDictionary, nil)
-            }
-        }
-    }
-
     /// The ChatGPT desktop app's own sign-in, read on every connection.
     /// SayIt 2 never writes or refreshes it: the ChatGPT app owns the refresh token.
     static func chatGPT() throws -> (token: String, account: String) {

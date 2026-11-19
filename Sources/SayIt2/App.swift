@@ -51,7 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func start(handsFree: Bool) {
         guard recording == nil else { return }
         do {
-            let dictation = try Dictation(provider: Config.provider, handsFree: handsFree, typist: typist)
+            let config = Config.load()
+            let dictation = try Dictation(config: config, handsFree: handsFree, typist: typist)
             dictation.onLevel = { [weak self] level in self?.indicator.level = level }
             dictation.onStopped = { [weak self] in self?.refresh() }
             dictation.onEnd = { [weak self, weak dictation] problem in
@@ -62,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             dictations.append(dictation)
             dictation.start()
-            log.notice("recording started: \(Config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
+            log.notice("recording started: \(config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
             log.notice("could not start: \(message, privacy: .public)")
@@ -89,8 +90,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var attention: String? {
         if !trusted { return "Grant Accessibility Access…" }
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
-        if Config.provider == .deepgram, Credentials.deepgramKey == nil { return "Set Deepgram API Key…" }
-        if Config.provider == .chatgpt, (try? Credentials.chatGPT()) == nil { return "Open ChatGPT to sign in" }
+        let config = Config.load()
+        if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in the config" }
+        if config.provider == .chatgpt, (try? Credentials.chatGPT()) == nil { return "Open ChatGPT to sign in" }
         return nil
     }
 
@@ -99,15 +101,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         refresh()
         menu.removeAllItems()
-        menu.addItem(withTitle: "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?", build = info?["CFBundleVersion"] as? String ?? "?"
+        menu.addItem(withTitle: "SayIt 2  \(version) (build \(build))", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: attention ?? "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
+        let current = Config.load().provider
         for provider in Provider.allCases {
             let item = menu.addItem(withTitle: provider.title, action: #selector(chooseProvider(_:)), keyEquivalent: "")
             item.representedObject = provider.rawValue
-            item.state = provider == Config.provider ? .on : .off
+            item.state = provider == current ? .on : .off
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Set Deepgram API Key…", action: #selector(setDeepgramKey), keyEquivalent: "")
+        menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
         if !trusted {
             menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(openAccessibility), keyEquivalent: "")
         }
@@ -121,22 +127,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func chooseProvider(_ item: NSMenuItem) {
         guard let name = item.representedObject as? String, let provider = Provider(rawValue: name) else { return }
-        Config.provider = provider
+        Config.setProvider(provider)
         refresh()
     }
 
-    @objc private func setDeepgramKey() {
-        let alert = NSAlert()
-        alert.messageText = "Deepgram API key"
-        alert.informativeText = "Stored in your Keychain. Leave empty to remove it."
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn { Credentials.deepgramKey = field.stringValue }
-        refresh()
+    /// Opens the settings file in the default text editor.
+    @objc private func editConfig() {
+        _ = Config.load()   // creates the file with every option listed, if it is missing
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-t", Config.file.path]
+        try? open.run()
     }
 
     @objc private func openAccessibility() { openSettings("Privacy_Accessibility") }

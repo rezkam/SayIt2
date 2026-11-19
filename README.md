@@ -11,19 +11,24 @@ into the app you are in. No window, no sounds, no clipboard use.
 ## Build and run
 
 ```sh
-bash scripts/build-app.sh
+bash scripts/build-app.sh              # build and sign
+bash scripts/build-app.sh --notarize   # also notarize with Apple
 open "build/SayIt 2.app"
 ```
 
 Requires Xcode. On first launch, grant Accessibility (for the hotkey and typing) and
-Microphone access.
+Microphone access. The first line of the menu shows the version and build number.
 
-## Providers
+## Settings
 
-- **ChatGPT** uses the sign-in of the ChatGPT desktop app on this Mac (read-only). If it has
-  expired, open the ChatGPT app once. This is a private interface and may stop working.
-- **Deepgram** needs an API key: menu, "Set Deepgram API Key…". It is stored in the Keychain.
+Everything is in one text file, `~/.config/sayit2/config`. Open it with **Edit Config…** in
+the menu. Saved changes apply to the next dictation.
 
-The chosen provider is kept in `~/.config/sayit2/config`.
+- **ChatGPT** uses the sign-in of the ChatGPT desktop app on this Mac (read-only), so there
+  is nothing to set. If it has expired, open the ChatGPT app once. This is a private
+  interface and may stop working. Text is typed exactly as ChatGPT returns it.
+- **Deepgram** needs `deepgram.api_key`. Every other `deepgram.*` line is passed to Deepgram's
+  live streaming API as a parameter (model, language, formatting, key terms and so on); the
+  file lists them all with a short explanation.
 
 See `PLAN.md` for the design, the verified facts behind it, and known limits.
