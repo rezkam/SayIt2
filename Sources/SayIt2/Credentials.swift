@@ -1,0 +1,56 @@
+import Foundation
+import Security
+
+enum Credentials {
+    private static let item: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "sayit2",
+        kSecAttrAccount as String: "deepgram-api-key",
+    ]
+
+    /// The Deepgram API key, kept in the login Keychain.
+    static var deepgramKey: String? {
+        get {
+            var query = item
+            query[kSecReturnData as String] = true
+            var result: CFTypeRef?
+            guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        set {
+            let key = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let data = [kSecValueData as String: Data(key.utf8)]
+            if key.isEmpty {
+                SecItemDelete(item as CFDictionary)
+            } else if SecItemUpdate(item as CFDictionary, data as CFDictionary) == errSecItemNotFound {
+                SecItemAdd(item.merging(data) { $1 } as CFDictionary, nil)
+            }
+        }
+    }
+
+    /// The ChatGPT desktop app's own sign-in, read on every connection.
+    /// SayIt 2 never writes or refreshes it: the ChatGPT app owns the refresh token.
+    static func chatGPT() throws -> (token: String, account: String) {
+        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tokens = root["tokens"] as? [String: Any],
+              let token = tokens["access_token"] as? String,
+              let account = tokens["account_id"] as? String,
+              expiry(of: token) > Date()
+        else { throw Problem(message: "Open ChatGPT to sign in", retryable: false) }
+        return (token, account)
+    }
+
+    /// Expiry from the token's own claims. An unreadable token is left for the server to judge.
+    private static func expiry(of token: String) -> Date {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return .distantFuture }
+        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let exp = claims["exp"] as? Double else { return .distantFuture }
+        return Date(timeIntervalSince1970: exp)
+    }
+}

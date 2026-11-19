@@ -1,6 +1,6 @@
 # SayIt 2: implementation plan
 
-Status: research done, waiting on the decisions in section 2. No app code is written yet.
+Status: decisions settled (section 2), implementation in progress.
 
 Visual mockups to choose from: `docs/mockups.html` (open it in a browser).
 
@@ -35,44 +35,25 @@ scripts are in `.agents/probes/` (not committed).
 | Text insertion without clipboard | Unicode keyboard events in bursts of at most 20 UTF-16 units, already used by SpeakFlow's batch path | Observed in SpeakFlow code; per-app behavior needs your test |
 | Toolchain | The Xcode toolchain builds fine. The second Swift toolchain on PATH fails against the current SDK, so builds go through `xcrun` | Observed |
 
-## 2. Decisions needed
+## 2. Decisions
 
-My recommendation is listed first for each.
+Settled on 2026-11-19.
 
-1. **Indicator look.** Pick a concept, detail level, accent, and size in `docs/mockups.html`.
-   Recommendation: concept A (drop pill) with voice bars and a live text tail.
-
-2. **Where live text appears.**
-   - (a) Live text and corrections show in the indicator. The finished text is inserted
-     once when you stop. *Recommended.* This is how ChatGPT's cross-app dictation delivers
-     text, it cannot produce duplicates or backspace storms, and it makes every retry safe.
-   - (b) Text is typed into the app while you speak, in finalized chunks. More "live", but
-     a focus change mid-sentence splits the text, and a reconnect has to be much more careful.
-
-3. **Punctuation on ChatGPT.** Deepgram can simply be asked for plain text. ChatGPT always
-   returns punctuation and capitals.
-   - (a) Strip punctuation marks from ChatGPT text locally (keep apostrophes, keep capitals).
-     *Recommended, given your no-punctuation preference.*
-   - (b) Also lowercase everything, to match Deepgram exactly.
-   - (c) Leave ChatGPT text as the model wrote it.
-
-4. **ChatGPT credentials.** Read the ChatGPT app's `~/.codex/auth.json` each time, read-only,
-   and never refresh the token from SayIt 2. *Recommended.* Refresh tokens rotate, so a second
-   client refreshing could sign the ChatGPT app out (Inferred). The cost: if the ChatGPT app
-   has not run for 10 days, SayIt 2 shows "open ChatGPT to sign in" and you switch to Deepgram
-   until you do. Nothing is copied into Keychain for ChatGPT.
-
-5. **Focus at the end.** Insert into whatever field is focused when dictation finishes
-   (ChatGPT's behavior). *Recommended.* The alternative, refusing to insert unless the original
-   app is still frontmost, is safer against surprises but drops text when you switch on purpose.
-
-6. **Length limit.** ChatGPT sessions are capped at 5 minutes by its own protocol. Plan:
-   auto-finish and insert at 4 min 45 s on ChatGPT, no cap on Deepgram.
+1. **Indicator:** concept A (drop pill), voice bars only, white accent, size M, menu bar glyph 2 (bars).
+2. **Live text:** typed straight into the focused text field while you speak, with corrections.
+   The pill shows no text (except a short message when something is wrong).
+3. **Focus:** the app that was focused when dictation started is the target. If another app
+   comes to the front, typing pauses and resumes when the target app is back.
+4. **Punctuation:** none. Deepgram is asked for plain text. ChatGPT text has punctuation marks
+   stripped locally (apostrophes and marks inside a word or number are kept, capitals are kept).
+5. **ChatGPT credentials:** read `~/.codex/auth.json` read-only on every connection, never refresh.
+6. **Length limit:** auto-finish at 4 min 45 s on ChatGPT (its sessions last 5 minutes), no cap on Deepgram.
+7. **Name:** the app is "SayIt 2" everywhere; `sayit2` or `SayIt2` where a space is not allowed.
 
 ## 3. Shape of the app
 
 Native Swift, AppKit only, zero third-party dependencies, no window, no tests.
-Target: under about 900 lines.
+About 1,200 lines including comments.
 
 | File | Job |
 | --- | --- |
@@ -80,10 +61,11 @@ Target: under about 900 lines.
 | `Hotkey.swift` | Right Option gesture: hold, double-tap, tap to stop |
 | `Audio.swift` | Microphone tap, one conversion to mono PCM16 at the provider's rate, voice level |
 | `Dictation.swift` | One recording from key press to inserted text: buffer, timeouts, retry |
-| `ChatGPT.swift` | ChatGPT stream messages |
+| `Transcriber.swift` | One streaming WebSocket connection, shared by both providers |
+| `ChatGPT.swift` | ChatGPT stream messages, punctuation stripping |
 | `Deepgram.swift` | Deepgram stream messages |
 | `Indicator.swift` | The floating indicator |
-| `Inserter.swift` | Clipboard-free text insertion |
+| `Typist.swift` | Live typing into the target app, corrections, focus waiting |
 | `Credentials.swift` | Keychain (Deepgram key), read-only ChatGPT token file |
 | `Config.swift` | `~/.config/sayit2/config` (plain `key = value` text) |
 
@@ -130,58 +112,81 @@ file. Nothing else is configurable.
 
 Right Option only (key code 61), matching ChatGPT's timings:
 
-- Press: start recording at once (audio is buffered while the connection opens).
-- Release before 100 ms: it was a tap. Cancel, insert nothing, remember the tap.
-- Second press within 400 ms of that tap: hands-free mode. Release is ignored.
-- Press while hands-free: stop and insert.
-- Release after 100 ms in hold mode: stop and insert.
-- Any other key pressed while Right Option is held (typing a special character): cancel
-  silently, so normal Option shortcuts keep working.
+- Press: nothing visible yet. After 100 ms of holding, recording starts (hold mode).
+- Release before 100 ms: it was a tap. Nothing started. The tap is remembered.
+- Second press within 400 ms of that tap: hands-free mode starts at once. Release is ignored.
+- Press while hands-free: stop.
+- Release in hold mode: stop.
+- Any other key or modifier pressed while Right Option is held (typing a symbol such as `@`
+  on layouts that need Option): cancel silently, so Option combinations keep working.
 
-No other key is captured, consumed, or synthesized apart from the inserted text itself.
+One deliberate difference from ChatGPT: it starts the microphone on key down and throws the
+audio away if the press turns out to be a tap. SayIt 2 waits the same 100 ms before touching the
+microphone, so typing Option symbols never flashes the microphone indicator.
+
+No other key is captured or consumed. Key events SayIt 2 posts itself are tagged and ignored
+by its own listener.
+
+Safety net: in hold mode the physical key state is polled, so a missed release event cannot
+leave recording stuck on.
 
 Limit: macOS does not deliver key events while a password field has secure input, so
 dictation cannot start there.
 
 ## 7. Text insertion
 
-- Unicode keyboard events, at most 20 UTF-16 units per event, with modifier flags cleared.
-  The clipboard is never read or written.
-- Wait (briefly, bounded) until no modifier key is physically down before posting.
-- Needs Accessibility permission. If it is missing, the indicator says so and the menu
-  offers to open the settings pane. Text is never silently dropped onto the clipboard.
-- Tradeoff against ChatGPT's method: ChatGPT stages text on the clipboard and triggers Paste,
-  which works in nearly every app but touches the clipboard. Key events avoid the clipboard;
-  a few apps may handle synthetic Unicode poorly. That is the part that needs your hands-on
-  check in the apps you use.
+Live typing with a single rule: SayIt 2 remembers exactly what it has typed (`typed`) and what
+the transcript currently says (`target`). One loop makes `typed` equal `target`:
+
+- If `typed` is a prefix of `target`: type the missing part (Unicode key events, at most
+  20 UTF-16 units per event).
+- Otherwise: backspace to the common prefix, then type.
+
+Only the newest transcript matters, so updates can never be applied out of order or twice.
+
+- Before every key event the focused app is checked. If it is not the target app, the loop
+  waits. When the target app is back, it continues from where it stopped.
+- Starting a new dictation in a different app abandons text still waiting for another app.
+  Dictations into the same app are typed in order.
+- Events carry no modifier flags, so text and backspaces behave normally while Right Option
+  is still held.
+- Backspaces are counted in Unicode scalars of NFC text. Checked in a native text view: this
+  is correct for Latin, Persian, and the zero-width non-joiner.
+- A trailing space is added when a dictation finishes.
+- The clipboard is never read or written.
+- Needs Accessibility permission (for both the hotkey and typing). If it is missing, the menu
+  bar icon shows a warning and the menu offers to open the settings pane.
+
+Known limits: the focus check is per app, not per text field. If you move the cursor or type
+in the target field while dictating, a later correction can backspace the wrong characters.
+Apps that ignore synthetic Unicode events will not receive text.
 
 ## 8. Credentials
 
 - Deepgram: one Keychain generic-password item owned by SayIt 2. Set through
   "Set Deepgram API Key…" in the menu (a small secure text prompt).
-- ChatGPT: see decision 4. The token's expiry is checked locally before connecting so the
+- ChatGPT: see decision 5. The token's expiry is checked locally before connecting so the
   message is clear ("open ChatGPT to sign in") instead of a failed connection.
 
 ## 9. Reliability
 
-One rule makes retries safe: text is inserted once, at the end, and until then SayIt 2 keeps
-every audio byte the provider has not finalized. A retry opens a new connection, replays that
-audio, and replaces the unfinished text. Nothing is typed twice because nothing has been
-typed yet.
+SayIt 2 keeps every audio byte the provider has not finalized. A retry opens a new connection
+and replays that audio. Because typing always converges on the newest transcript, a replay
+cannot produce duplicate text. While a replay is catching up, shorter transcripts are held
+back so text already typed is not erased and retyped.
 
 | Failure | Response |
 | --- | --- |
-| Connection fails to open (5 s timeout) | Retry up to 2 more times (0.3 s, then 1 s). Recording continues, audio is buffered |
-| Stream drops mid-recording | Same retry. Deepgram resumes after its last final; ChatGPT replays the recording (catches up at about 3.5x) |
-| No server message for 5 s while audio is flowing | Treated as a drop |
-| No final within 8 s after stop | One replay retry; if that fails too, insert the latest live text and show a warning |
-| ChatGPT token expired or rejected (401/403) | Re-read the token file once; if still rejected, show "open ChatGPT to sign in". No further retries |
-| Provider error message | Show it; retry only if it is a transport error |
-| Microphone missing, denied, or changed mid-recording | Cannot be resumed: stop, transcribe what was captured, show the reason |
-| All retries exhausted with no text | Show the error for 3 s. Recording state always returns to idle |
+| Connection fails to open, drops, or sends nothing for 5 s | Reconnect (after 0.3 s, then 1 s), up to 2 retries in a row. Recording continues |
+| Reconnect on Deepgram | Resumes after its last final, so only a few seconds are replayed |
+| Reconnect on ChatGPT | Replays the recording, paced at about 8x real time |
+| ChatGPT asks the client to stop (`session.stop_requested`) | Finish normally |
+| ChatGPT token expired, missing, or rejected | "Open ChatGPT to sign in". The file is re-read on each retry |
+| Deepgram key missing or rejected | "Set Deepgram key" |
+| Microphone missing, denied, or changed mid-recording | Cannot be resumed: stop and finish with what was captured |
+| Retries exhausted | Keep the text typed so far, show the reason for 3 s, return to idle |
 
-Every recording has an id. Late callbacks from an older recording are ignored, so a stale
-connection can never write into the next dictation.
+Each recording is its own object. Callbacks from an older connection or recording are ignored.
 
 Private-endpoint risk: the ChatGPT stream is an internal, undocumented interface. SayIt 2
 identifies itself with the desktop app's client headers. It can change or stop working with
@@ -193,11 +198,23 @@ stores no audio and no transcripts.
 
 ## 10. Indicator and menu bar
 
-Chosen from `docs/mockups.html`. Whatever the concept, these states exist: idle (nothing on
-screen), listening (hold), listening (hands-free), finishing, problem. No sounds.
+Concept A from `docs/mockups.html`: a black pill that drops from under the notch (or the top
+edge on other displays) with five white bars that follow your voice.
 
-The indicator is a borderless, click-through, non-activating panel above all apps and
-full-screen spaces. It never takes focus.
+| State | Pill |
+| --- | --- |
+| Idle | Not on screen |
+| Hold | Bars follow the voice level |
+| Hands-free | Same, plus a small square ("tap to stop") |
+| Finishing | Bars turn into a slow wave |
+| Waiting for the target app | Bars dim and stand still |
+| Problem | Red flat bars and a short message for 3 s |
+
+The pill is a borderless, click-through, non-activating panel above all apps and full-screen
+spaces. It never takes focus. No sounds anywhere.
+
+Menu bar icon (bars glyph): normal when ready, red while recording, dimmed with a badge when
+something is missing (Accessibility, microphone, or the selected provider's credentials).
 
 ## 11. Build and run
 
@@ -208,15 +225,16 @@ full-screen spaces. It never takes focus.
 
 ## 12. Manual verification (no automated tests)
 
-1. Hold Right Option in a text editor, speak English, release: text appears once, clipboard unchanged.
+1. Hold Right Option in a text editor, speak English, release: text appears as you speak, once, clipboard unchanged.
 2. Same in Persian.
 3. Double-tap, speak, pause, speak, tap: one insertion.
 4. Short single tap: nothing happens.
 5. Right Option plus a letter: the special character types, no dictation.
 6. Repeat 1 to 3 on the other provider.
 7. Turn Wi-Fi off mid-sentence and back on: recording survives or ends with a clear message; no duplicate text.
-8. Remove Accessibility permission: clear message, no insertion, no clipboard change.
-9. Apps to cover: a native text field, a browser, a terminal, an Electron app.
+8. Switch to another app mid-sentence and come back: typing pauses, then continues in the original app.
+9. Remove Accessibility permission: warning icon, nothing typed, no clipboard change.
+10. Apps to cover: a native text field, a browser, a terminal, an Electron app.
 
 ## 13. Out of scope
 
