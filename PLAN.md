@@ -43,8 +43,8 @@ Settled on 2026-11-19.
 1. **Indicator:** concept A (drop pill), voice bars only, white accent, size M, menu bar glyph 2 (bars).
 2. **Live text:** typed straight into the focused text field while you speak, with corrections.
    The pill shows no text (except a short message when something is wrong).
-3. **Focus:** the app that was focused when dictation started is the target. If another app
-   comes to the front, typing pauses and resumes when the target app is back.
+3. **Focus:** the text field that was focused when dictation started is the target. If focus
+   moves elsewhere (another app, window, or field), typing pauses and resumes when it returns.
 4. **Text as returned:** ChatGPT text is typed exactly as ChatGPT returns it, punctuation included.
    Deepgram returns plain lowercase text unless formatting is enabled in the config file.
 5. **ChatGPT credentials:** read `~/.codex/auth.json` read-only on every connection, never refresh.
