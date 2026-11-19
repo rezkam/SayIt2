@@ -60,9 +60,11 @@ struct Config {
     }
 
     /// Changes only the `provider` line, leaving the rest of the file as the user wrote it.
-    static func setProvider(_ provider: Provider) {
+    /// Returns false, changing nothing, if the file cannot be read: writing then would erase it.
+    static func setProvider(_ provider: Provider) -> Bool {
         _ = load()
-        var lines = ((try? String(contentsOf: file, encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
+        var lines = text.components(separatedBy: "\n")
         let line = "provider = \(provider.rawValue)"
         if let index = lines.firstIndex(where: { entries($0).first?.key == "provider" }) {
             lines[index] = line
@@ -70,7 +72,7 @@ struct Config {
             lines.insert(line, at: 0)
         }
         // Not atomic on purpose: that would replace the file and lose its private permissions.
-        try? lines.joined(separator: "\n").write(to: file, atomically: false, encoding: .utf8)
+        return (try? lines.joined(separator: "\n").write(to: file, atomically: false, encoding: .utf8)) != nil
     }
 
     /// `key = value` pairs, skipping blank lines and lines that start with `#`.

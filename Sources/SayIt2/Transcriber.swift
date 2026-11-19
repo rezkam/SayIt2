@@ -12,12 +12,16 @@ class Transcriber {
     /// The connection is over: nil after a clean finish, otherwise what went wrong.
     var onEnd: ((Problem?) -> Void)?
 
-    /// When the server last sent anything. A long silence means the connection is dead.
+    /// When the server last showed it is alive: a message, or the answer to a ping.
+    /// Pings are used because how often a provider sends transcripts depends on its settings.
     private(set) var lastActivity = Date()
+    /// When the server last sent a message.
+    private(set) var lastMessage = Date()
     /// Whether audio may be sent yet.
     var isReady: Bool { true }
 
     private var task: URLSessionWebSocketTask?
+    private var pinger: Task<Void, Never>?
     private var ended = false
 
     func request() throws -> URLRequest { fatalError("subclass") }
@@ -36,6 +40,15 @@ class Transcriber {
             task.resume()
             opened()
             receive()
+            pinger = Task { [weak self] in
+                while !Task.isCancelled, let task = self?.task {
+                    task.sendPing { error in
+                        guard error == nil else { return }
+                        Task { @MainActor in self?.lastActivity = Date() }
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
         } catch {
             end(error as? Problem ?? Problem(message: "Connection failed"))
         }
@@ -44,12 +57,14 @@ class Transcriber {
     /// Drops the connection without reporting anything.
     func cancel() {
         ended = true
+        pinger?.cancel()
         task?.cancel()
     }
 
     func end(_ problem: Problem?) {
         guard !ended else { return }
         ended = true
+        pinger?.cancel()
         task?.cancel()
         onEnd?(problem)
     }
@@ -70,6 +85,7 @@ class Transcriber {
                 guard let self, !self.ended else { return }
                 guard case .success(let message) = result else { return self.failed() }
                 self.lastActivity = Date()
+                self.lastMessage = Date()
                 if case .string(let text) = message,
                    let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] {
                     self.received(object)

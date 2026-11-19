@@ -6,7 +6,8 @@ into the app you are in. No window, no sounds, no clipboard use.
 - **Hold** Right Option to dictate, release to finish.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
 - Pick **ChatGPT** or **Deepgram Nova-3** in the menu bar menu.
-- If you switch to another app while it is typing, it waits and continues when you return.
+- If focus leaves the text field while it is typing (another app, window, or field), it
+  waits and continues when you return to that field.
 
 ## Build and run
 

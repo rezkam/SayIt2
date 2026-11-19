@@ -4,7 +4,7 @@ import ApplicationServices
 /// Marks key events SayIt 2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
 
-/// Types transcripts into the app that was focused when dictation started.
+/// Types transcripts into the text field that was focused when dictation started.
 ///
 /// Each job remembers exactly what it has typed. One loop makes that equal the newest
 /// transcript: type what is missing, or backspace to the common prefix first. Only the
@@ -13,35 +13,43 @@ let syntheticEventTag: Int64 = 0x5341_5932
 final class Typist {
     final class Job {
         let app: pid_t
+        /// The field that had focus when dictation started, if the app exposes one.
+        fileprivate let field: AXUIElement?
         fileprivate(set) var typed: [Unicode.Scalar] = []
         fileprivate var target: [Unicode.Scalar] = []
         fileprivate var isFinal = false
+        fileprivate var finishedAt: Date?
 
-        fileprivate init(app: pid_t) {
+        fileprivate init(app: pid_t, field: AXUIElement?) {
             self.app = app
+            self.field = field
         }
     }
 
     /// Called when typing starts or stops waiting, and when everything has been typed.
     var onChange: (() -> Void)?
-    /// The target app is not in front, so typing is paused until it returns.
+    /// Focus is somewhere other than the target field, so typing is paused until it returns.
     private(set) var isWaiting = false
     var isBusy: Bool { !jobs.isEmpty }
 
     private var jobs: [Job] = []
     private var running = false
     private let source = CGEventSource(stateID: .privateState)
+    /// Text that could not be delivered within this long after its dictation ended is abandoned.
+    private let patience: TimeInterval = 120
 
     init() {
         source?.localEventsSuppressionInterval = 0
+        // An app that does not answer must not freeze typing: focus questions give up quickly.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
     }
 
-    /// Starts a job for the app that has keyboard focus right now.
+    /// Starts a job for the field that has keyboard focus right now.
     /// Text still waiting for a different app is abandoned.
     func begin() -> Job? {
         guard let app = Self.focusedApp() else { return nil }
         jobs.removeAll { $0.app != app }
-        let job = Job(app: app)
+        let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()))
         jobs.append(job)
         run()
         return job
@@ -54,6 +62,7 @@ final class Typist {
             $0.properties.generalCategory == .control ? " " : $0
         }
         job.isFinal = final
+        if final { job.finishedAt = Date() }
     }
 
     /// Ends a job leaving whatever has been typed so far.
@@ -64,14 +73,36 @@ final class Typist {
     }
 
     static func focusedApp() -> pid_t? {
-        var value: CFTypeRef?
-        let system = AXUIElementCreateSystemWide()
-        if AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &value) == .success,
-           let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
-            var app: pid_t = 0
-            if AXUIElementGetPid(value as! AXUIElement, &app) == .success { return app }
-        }
+        var app: pid_t = 0
+        if let focused = element(kAXFocusedApplicationAttribute, of: AXUIElementCreateSystemWide()),
+           AXUIElementGetPid(focused, &app) == .success { return app }
         return NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    /// Whether keyboard focus is still in the field this job started in.
+    private static func isFocused(_ job: Job) -> Bool {
+        guard focusedApp() == job.app else { return false }
+        // An app that exposed no field at the start can only be checked as a whole.
+        guard let field = job.field else { return true }
+        guard let current = element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()) else { return false }
+        if CFEqual(current, field) { return true }
+        // Some apps hand out a new object for the same field, so ask the original whether it has focus.
+        var value: CFTypeRef?
+        let answer = AXUIElementCopyAttributeValue(field, kAXFocusedAttribute as CFString, &value)
+        if answer == .success, let focused = value as? Bool { return focused }
+        if answer == .invalidUIElement { return false }   // the original field no longer exists
+        // The app cannot say. A different window is certainly a different field.
+        if let original = element(kAXWindowAttribute, of: field), let now = element(kAXWindowAttribute, of: current) {
+            return CFEqual(original, now)
+        }
+        return true
+    }
+
+    private static func element(_ attribute: String, of element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
     private func run() {
@@ -87,7 +118,11 @@ final class Typist {
                     jobs.removeFirst()   // the target app quit
                     continue
                 }
-                guard Self.focusedApp() == job.app else {
+                guard Self.isFocused(job) else {
+                    if let finishedAt = job.finishedAt, Date().timeIntervalSince(finishedAt) > patience {
+                        jobs.removeFirst()   // the user never came back to this field
+                        continue
+                    }
                     setWaiting(true)
                     try? await Task.sleep(for: .milliseconds(150))
                     continue

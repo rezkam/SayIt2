@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func chooseProvider(_ item: NSMenuItem) {
         guard let name = item.representedObject as? String, let provider = Provider(rawValue: name) else { return }
-        Config.setProvider(provider)
+        if !Config.setProvider(provider) { indicator.flash("Config file could not be read") }
         refresh()
     }
 

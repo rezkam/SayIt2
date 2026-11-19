@@ -88,6 +88,7 @@ The file is created with owner-only permissions because it holds the Deepgram ke
   - ChatGPT: PCM16, 48,000 Hz, mono. Sent as Base64 in `audio.append`, 4,096 bytes per message.
   - Deepgram: PCM16, 16,000 Hz, mono. Sent as binary frames, 100 ms each.
 - No VAD, no gain, no noise processing, no file encoding.
+- The microphone stays open for 0.2 s after you stop, so the end of the last word is not cut off.
 - A voice level (RMS of each buffer) drives the indicator so you can see it hears you.
 
 ## 5. Providers
@@ -111,7 +112,8 @@ The file is created with owner-only permissions because it holds the Deepgram ke
    Flux models are not supported: they use `/v2/listen`, a different protocol, and have no Persian.
 2. Text: finals (`is_final: true`) are appended and never change. The newest interim
    replaces the previous interim after them.
-3. Stop: send `CloseStream`, read until `Metadata` or a clean close.
+3. Stop: send `CloseStream`, read until `Metadata`. From then on only finals count: interim
+   text that no final confirmed is dropped.
 
 **Language notes**
 - ChatGPT: no language setting exists in the stream; detection is automatic. Persian and
@@ -155,8 +157,12 @@ the transcript currently says (`target`). One loop makes `typed` equal `target`:
 
 Only the newest transcript matters, so updates can never be applied out of order or twice.
 
-- Before every key event the focused app is checked. If it is not the target app, the loop
-  waits. When the target app is back, it continues from where it stopped.
+- Before every key event the focus is checked. Typing continues only while the text field
+  that had focus when dictation started still has it: the same element, or the original
+  element still reporting itself focused. Another app, another window, or another field in the
+  same app pauses typing until focus returns. Apps that expose no field information are
+  checked at the app level only.
+- Text that could not be delivered within two minutes after its dictation ended is abandoned.
 - Starting a new dictation in a different app abandons text still waiting for another app.
   Dictations into the same app are typed in order.
 - Events carry no modifier flags, so text and backspaces behave normally while Right Option
@@ -168,9 +174,10 @@ Only the newest transcript matters, so updates can never be applied out of order
 - Needs Accessibility permission (for both the hotkey and typing). If it is missing, the menu
   bar icon shows a warning and the menu offers to open the settings pane.
 
-Known limits: the focus check is per app, not per text field. If you move the cursor or type
-in the target field while dictating, a later correction can backspace the wrong characters.
-Apps that ignore synthetic Unicode events will not receive text.
+Known limits: if you move the cursor or type inside the target field while dictating, a later
+correction can backspace the wrong characters. An app that replaces its field object while you
+type can look like a different field, which pauses typing. Apps that ignore synthetic Unicode
+events will not receive text.
 
 ## 8. Credentials
 
@@ -187,7 +194,8 @@ back so text already typed is not erased and retyped.
 
 | Failure | Response |
 | --- | --- |
-| Connection fails to open, drops, or sends nothing for 5 s | Reconnect (after 0.3 s, then 1 s), up to 2 retries in a row. Recording continues |
+| Connection fails to open, drops, or shows no sign of life for 5 s (no message and no answer to a WebSocket ping, sent every 2 s) | Reconnect (after 0.3 s, then 1 s), up to 2 retries in a row. Recording continues |
+| All audio was handed over and the server then sends nothing for 10 s | Treated as a drop |
 | Reconnect on Deepgram | Resumes after its last final, so only a few seconds are replayed |
 | Reconnect on ChatGPT | Replays the recording, paced at about 8x real time |
 | ChatGPT asks the client to stop (`session.stop_requested`) | Finish normally |

@@ -31,7 +31,8 @@ final class Dictation {
     private var live = ""
     private var failures = 0        // connection failures in a row
     private var catchingUp = false  // a replay is running; its transcript is still behind what was typed
-    private var finishSent = false
+    private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
+    private var finishedAt: Date?   // when the provider was told there is no more audio
     private var sawKeyDown = false
     private var ended = false
 
@@ -44,7 +45,7 @@ final class Dictation {
         self.job = job
 
         mic.onAudio = { [weak self] data, level in
-            guard let self, self.isRecording else { return }
+            guard let self, self.capturing else { return }
             self.audio.append(data)
             self.onLevel?(level)
         }
@@ -65,12 +66,18 @@ final class Dictation {
         }
     }
 
-    /// The user finished speaking: stop the microphone and wait for the remaining text.
+    /// The user finished speaking: close the microphone and wait for the remaining text.
     func stop() {
         guard isRecording, !ended else { return }
         isRecording = false
-        mic.stop()
         onStopped?()
+        // The end of the last word is still travelling through the audio buffers when the key
+        // is released, so the microphone stays open a moment longer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.capturing else { return }
+            self.capturing = false
+            self.mic.stop()
+        }
     }
 
     /// Abandons the recording, leaving whatever was already typed.
@@ -91,7 +98,7 @@ final class Dictation {
         self.stream = stream
         sent = 0
         trimmed = 0
-        finishSent = false
+        finishedAt = nil
 
         stream.onInterim = { [weak self, weak stream] text in
             guard let self, self.stream === stream else { return }
@@ -133,7 +140,11 @@ final class Dictation {
             if keyReleased || Date().timeIntervalSince(started) > provider.maxSeconds { stop() }
         }
         guard let stream else { return }
-        if Date().timeIntervalSince(stream.lastActivity) > 5 {
+        // Dead connection: no sign of life for 5 s, not even the answer to a ping.
+        // Stuck transcription: all audio was handed over and the server then said nothing for 10 s.
+        let now = Date()
+        let stuck = finishedAt.map { now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
+        if now.timeIntervalSince(stream.lastActivity) > 5 || stuck {
             stream.cancel()
             self.stream = nil
             return lost(Problem(message: "No response from \(provider.title)"))
@@ -141,14 +152,14 @@ final class Dictation {
         guard stream.isReady else { return }
         // At most 8 messages per tick, so a replay after a reconnect is paced, not dumped at once.
         var budget = 8
-        while budget > 0, sent < audio.count, audio.count - sent >= provider.frameBytes || !isRecording {
+        while budget > 0, sent < audio.count, audio.count - sent >= provider.frameBytes || !capturing {
             let count = min(provider.frameBytes, audio.count - sent)
             stream.send(audio: audio.subdata(in: sent..<sent + count))
             sent += count
             budget -= 1
         }
-        if !isRecording, sent == audio.count, !finishSent {
-            finishSent = true
+        if !capturing, sent == audio.count, finishedAt == nil {
+            finishedAt = now
             stream.finish()
         }
     }
@@ -181,7 +192,7 @@ final class Dictation {
         guard !ended else { return }
         close()
         let text = currentText
-        if catchingUp {
+        if catchingUp, problem != nil {
             typist.keepTyped(job)   // an unfinished replay must not erase what was already typed
         } else {
             typist.set(text.isEmpty ? "" : text + " ", for: job, final: true)
@@ -192,6 +203,7 @@ final class Dictation {
     private func close() {
         ended = true
         isRecording = false
+        capturing = false
         timer?.invalidate()
         mic.stop()
         stream?.cancel()

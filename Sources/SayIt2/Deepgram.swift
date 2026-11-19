@@ -42,8 +42,12 @@ final class DeepgramStream: Transcriber {
                 onInterim?(text)
             }
         case "Metadata":
-            // Sent once everything after CloseStream has been flushed.
-            if finishing { end(nil) }
+            // Sent once everything after CloseStream has been flushed. Finals are now the whole
+            // transcript, so interim text that no final confirmed is dropped.
+            if finishing {
+                onInterim?("")
+                end(nil)
+            }
         default:
             break
         }
