@@ -87,7 +87,7 @@ final class ChatGPTStream: Transcriber {
 /// Removes punctuation marks, keeping those inside a word or number ("don't", "3.5", "well-known").
 func withoutPunctuation(_ text: String) -> String {
     let marks: Set<Character> = [".", ",", "!", "?", ";", ":", "\"", "'", "(", ")", "[", "]", "{", "}", "-",
-                                 "…", "–", "—", "“", "”", "‘", "’", "«", "»", "،", "؛", "؟"]
+                                 "…", "\u{2013}", "\u{2014}", "“", "”", "‘", "’", "«", "»", "،", "؛", "؟"]
     let characters = Array(text)
     var result = ""
     for (index, character) in characters.enumerated() {
