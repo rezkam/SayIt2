@@ -31,6 +31,7 @@ final class Dictation {
     private var failures = 0        // connection failures in a row
     private var catchingUp = false  // a replay is running; its transcript is still behind what was typed
     private var finishSent = false
+    private var sawKeyDown = false
     private var ended = false
 
     init(provider: Provider, handsFree: Bool, typist: Typist) throws {
@@ -125,7 +126,11 @@ final class Dictation {
     /// Runs every 40 ms: sends audio, notices a dead connection, and enforces the limits.
     private func tick() {
         if isRecording {
-            let keyReleased = !handsFree && !CGEventSource.keyState(.combinedSessionState, key: Hotkey.keyCode)
+            // Safety net for a missed release event in hold mode. It only acts once it has
+            // seen the key reported as down, so it can never end a recording by mistake.
+            let keyDown = CGEventSource.keyState(.combinedSessionState, key: Hotkey.keyCode)
+            let keyReleased = !handsFree && sawKeyDown && !keyDown
+            sawKeyDown = sawKeyDown || keyDown
             if keyReleased || Date().timeIntervalSince(started) > provider.maxSeconds { stop() }
         }
         guard let stream else { return }

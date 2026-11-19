@@ -39,11 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func checkAccessibility() {
         let now = AXIsProcessTrusted()
-        if now != trusted || !checkedOnce {
-            let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-            log.notice("accessibility \(now, privacy: .public), microphone \(microphone, privacy: .public)")
-        }
-        if now && !trusted { hotkey.install() }
+        guard now != trusted || !checkedOnce else { return }
+        let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        log.notice("accessibility \(now, privacy: .public), microphone \(microphone, privacy: .public)")
+        if now { hotkey.install() }
         trusted = now
         checkedOnce = true
         refresh()
@@ -98,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        refresh()
         menu.removeAllItems()
         menu.addItem(withTitle: "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())

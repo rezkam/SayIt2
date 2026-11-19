@@ -1,6 +1,6 @@
 # SayIt 2: implementation plan
 
-Status: decisions settled (section 2), implementation in progress.
+Status: implemented and running. Section 12 lists what has been checked and what still needs a hands-on try.
 
 Visual mockups to choose from: `docs/mockups.html` (open it in a browser).
 
@@ -31,6 +31,7 @@ scripts are in `.agents/probes/` (not committed).
 | Deepgram stop | Send `CloseStream`; server flushes remaining finals, sends `Metadata`, closes with 1000 (about 250 ms). `Metadata` or the clean close is the end marker | Observed |
 | Deepgram idle timeout | Connection closes after 10 s with no audio and no `KeepAlive` (text frame). Not a concern while audio flows continuously | Observed (docs) |
 | Deepgram catch-up speed | In `multi` mode, replayed audio was processed at only about 1.3x real time | Observed |
+| Deepgram word loss | In streaming, a final segment sometimes comes back shorter than its own interim text, losing one to five words at a segment boundary. Seen with `language=multi` and `language=en`, with several `endpointing` values, and not repeatable run to run (the same recording gave 99 words once and all 104 the next). ChatGPT returned complete text in every run. Synthetic voice only; real speech not measured | Observed |
 | ChatGPT hotkey timing | Press starts a hold session, confirmed after 100 ms. A press shorter than 100 ms is a tap. A second press within 400 ms of a tap starts hands-free. A press during hands-free stops it | Observed (installed build 26.1111.21308) |
 | Text insertion without clipboard | Unicode keyboard events in bursts of at most 20 UTF-16 units, already used by SpeakFlow's batch path | Observed in SpeakFlow code; per-app behavior needs your test |
 | Toolchain | The Xcode toolchain builds fine. The second Swift toolchain on PATH fails against the current SDK, so builds go through `xcrun` | Observed |
@@ -224,6 +225,16 @@ something is missing (Accessibility, microphone, or the selected provider's cred
 - Launch through Finder or `open`, not by running the binary from a terminal.
 
 ## 12. Manual verification (no automated tests)
+
+Checked so far:
+
+- Both provider classes transcribe a recorded phrase end to end (English on both; ChatGPT text has no punctuation).
+- The app builds, is signed, launches as a menu bar app, and reports Accessibility and Microphone as granted.
+- The menu bar item is registered and positioned in the visible part of the menu bar.
+- Key events SayIt 2 posts carry its tag through to the hotkey listener.
+- Backspace counting matches a native text view for Latin, Persian, and the zero-width non-joiner.
+
+Not yet exercised with a real key press and voice: the list below.
 
 1. Hold Right Option in a text editor, speak English, release: text appears as you speak, once, clipboard unchanged.
 2. Same in Persian.
