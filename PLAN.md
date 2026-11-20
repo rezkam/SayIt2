@@ -38,8 +38,10 @@ Native Swift, AppKit only, no third-party dependencies.
 | `Config.swift` | The settings file, the provider list, and the `Problem` error type |
 | `Typist.swift` | Inserting final text into the captured field, waiting for focus |
 | `Indicator.swift` | The pill |
+| `Updates.swift` | Sparkle update checks, shown as a menu item rather than a window |
 | `Resources/Fonts` | Vazirmatn (SIL Open Font License) and its license |
-| `scripts/build-app.sh` | Build, sign, and optionally notarize the app bundle |
+| `scripts/build-app.sh` | Build, sign (Sparkle inside out, then the app), optionally notarize |
+| `scripts/release.sh` | Release candidate install, and publishing a DMG plus signed appcast to GitHub |
 | `docs/pill-mockups.html` | The mockups the pill design was chosen from |
 | `AGENTS.md` | Mandates, the feature contract, and rejected approaches (`CLAUDE.md` links to it) |
 
@@ -184,17 +186,29 @@ Menu bar icon: four black bars (follows a dark menu bar). While recording they m
 voice. Dimmed with a badge when Accessibility, the microphone, or the provider's credentials are
 missing. The menu's first line shows the version and build.
 
-## 11. Build, sign, version
+## 11. Build, sign, version, release, update
 
-- `bash scripts/build-app.sh` builds `build/SayIt2.app` and signs it with the Developer ID
-  certificate (hardened runtime, secure timestamp, microphone entitlement).
-- `--notarize` also submits it to Apple's notary service and staples the ticket. Notarizing
-  needs the Mac unlocked, because the notary credential is not readable at the lock screen.
-- Signing identity and notary profile come from environment variables (`SAYIT2_*`, falling back
-  to `SPEAKFLOW_*`). Nothing identifying is stored in the repository.
+- `bash scripts/build-app.sh` builds `build/SayIt2.app` with Sparkle in `Contents/Frameworks`,
+  signs it with the Developer ID certificate (hardened runtime, secure timestamp, microphone
+  entitlement); `--notarize` also notarizes and staples it. Notarizing needs the Mac unlocked.
+- `bash scripts/release.sh rc` builds a notarized release candidate and installs it to
+  `/Applications`. `bash scripts/release.sh publish` then releases that same commit: it requires a
+  clean tree, the commit on `origin/main`, and an unreleased `VERSION`; builds a signed and
+  notarized DMG (the app plus a link to Applications); writes an `appcast.xml` with the DMG's
+  EdDSA signature and signs the feed itself; creates the GitHub release `v<VERSION>` with both
+  files; and re-downloads the DMG to check it matches and passes Gatekeeper.
+- Updates: Sparkle reads `https://github.com/<repo>/releases/latest/download/appcast.xml` once a
+  day. It requires a signed feed and a signed archive, verified with the public key in the app.
+  The private key is in the login Keychain (Sparkle account `sayit2`), never in the repository.
+  A newer version appears in the menu as "Update to SayIt2 X.Y.Z…" with a dot on the icon;
+  choosing it opens Sparkle's window, which downloads, verifies, installs and relaunches.
+  Builds without a known GitHub repository have updates switched off.
+- Signing identity, notary profile, bundle ID and repository come from environment variables
+  (`SAYIT2_*`, signing falling back to `SPEAKFLOW_*`) or the git remote. Nothing identifying is
+  stored in the repository.
 - Version: the `VERSION` file. Build number: the number of commits.
-- Launch through Finder or `open`. Builds use `xcrun` because the second Swift toolchain on
-  PATH fails against the current SDK (Observed).
+- Builds use `xcrun` because the second Swift toolchain on PATH fails against the current SDK
+  (Observed).
 
 ## 12. Verified facts
 

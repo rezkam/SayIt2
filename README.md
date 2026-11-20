@@ -10,16 +10,22 @@ No window, no sounds, no clipboard use.
 - If focus has left the text field when the text is ready (another app, window, or field),
   it waits and inserts the text when you return to that field.
 
-## Build and run
+## Install
+
+Download `SayIt2-<version>.dmg` from the latest GitHub release, open it, and drag SayIt2 to
+Applications. On first launch, grant Accessibility (for the hotkey and inserting text) and
+Microphone access. New versions are offered in the menu ("Update to SayIt2 X.Y.Z…").
+
+## Build
 
 ```sh
-bash scripts/build-app.sh              # build and sign
+bash scripts/build-app.sh              # build and sign build/SayIt2.app
 bash scripts/build-app.sh --notarize   # also notarize with Apple
-open "build/SayIt2.app"
+bash scripts/release.sh rc             # notarized release candidate, installed to /Applications
+bash scripts/release.sh publish        # release the tested commit on GitHub
 ```
 
-Requires Xcode. On first launch, grant Accessibility (for the hotkey and inserting text) and
-Microphone access. The first line of the menu shows the version and build number.
+Requires Xcode. The first line of the menu shows the version and build number.
 
 ## Settings
 

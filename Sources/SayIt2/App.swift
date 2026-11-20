@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let indicator = Indicator()
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
+    private let updates = Updates()
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
     private var trusted = false
@@ -33,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onCancel = { [weak self] in self?.recording?.cancel() }
         typist.onChange = { [weak self] in self?.refresh() }
         indicator.onMessageEnd = { [weak self] in self?.refresh() }
+        updates.onChange = { [weak self] in self?.refresh() }
+        updates.start()
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         // Ask for Accessibility once, then pick up the grant without needing a relaunch.
@@ -101,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             iconTimer?.invalidate()
             iconTimer = nil
             iconEnergy = 0
-            statusItem.button?.image = Self.icon(attention: attention != nil)
+            statusItem.button?.image = Self.icon(dimmed: attention != nil, badge: attention != nil || updates.available != nil)
         }
     }
 
@@ -122,6 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?", build = info?["CFBundleVersion"] as? String ?? "?"
+        if let available = updates.available {
+            menu.addItem(withTitle: "Update to SayIt2 \(available)…", action: #selector(Updates.check), keyEquivalent: "").target = updates
+            menu.addItem(.separator())
+        }
         menu.addItem(withTitle: "SayIt2  \(version) (build \(build))", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: attention ?? "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
@@ -139,9 +146,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
             menu.addItem(withTitle: "Allow Microphone Access…", action: #selector(openMicrophone), keyEquivalent: "")
         }
+        if updates.isEnabled {
+            menu.addItem(withTitle: "Check for Updates…", action: #selector(Updates.check), keyEquivalent: "")
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit SayIt2", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        for item in menu.items where item.action != #selector(NSApplication.terminate(_:)) { item.target = self }
+        for item in menu.items where item.target == nil && item.action != #selector(NSApplication.terminate(_:)) {
+            item.target = item.action == #selector(Updates.check) ? updates : self
+        }
     }
 
     @objc private func chooseProvider(_ item: NSMenuItem) {
@@ -180,21 +192,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let time = CACurrentMediaTime()
         let rates: [Double] = [5.1, 7.3, 6.2, 8.4], phases: [Double] = [0, 1.3, 2.1, 0.6]
         let amounts = (0..<4).map { CGFloat(0.2 + 0.8 * abs(sin(time * rates[$0] + phases[$0]))) * iconEnergy }
-        statusItem.button?.image = Self.icon(amounts: amounts, attention: false)
+        statusItem.button?.image = Self.icon(amounts: amounts)
     }
 
     /// Four black bars. At rest they have fixed heights; while recording `amounts` (0...1) sets them.
-    /// Dimmed with a badge when something is missing.
-    private static func icon(amounts: [CGFloat]? = nil, attention: Bool) -> NSImage {
+    /// Dimmed when something is missing. A badge marks something missing or an update to install.
+    private static func icon(amounts: [CGFloat]? = nil, dimmed: Bool = false, badge: Bool = false) -> NSImage {
         let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
             let rest: [CGFloat] = [4, 10, 6, 12]
-            NSColor.black.withAlphaComponent(attention ? 0.45 : 1).setFill()
+            NSColor.black.withAlphaComponent(dimmed ? 0.45 : 1).setFill()
             for index in 0..<4 {
                 let height = amounts.map { 3 + 11 * $0[index] } ?? rest[index]
                 let bar = NSRect(x: CGFloat(4 + 4 * index), y: 8 - height / 2, width: 2.2, height: height)
                 NSBezierPath(roundedRect: bar, xRadius: 1.1, yRadius: 1.1).fill()
             }
-            if attention {
+            if badge {
                 NSColor.black.setFill()
                 NSBezierPath(ovalIn: NSRect(x: 16.5, y: 9, width: 5.5, height: 5.5)).fill()
             }
