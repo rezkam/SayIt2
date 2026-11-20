@@ -4,21 +4,21 @@ import ApplicationServices
 /// Marks key events SayIt 2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
 
-/// Types transcripts into the text field that was focused when dictation started.
+/// Inserts each dictation's final text into the text field that had focus when it started.
 ///
-/// Each job remembers exactly what it has typed. One loop makes that equal the newest
-/// transcript: type what is missing, or backspace to the common prefix first. Only the
-/// newest transcript matters, so updates can never be applied twice or out of order.
+/// A job is created when recording starts, to remember the field, and receives its text once,
+/// at the end. Text is sent as Unicode key events, never through the clipboard. While focus is
+/// somewhere else, insertion waits for it to come back.
 @MainActor
 final class Typist {
     final class Job {
         let app: pid_t
         /// The field that had focus when dictation started, if the app exposes one.
         fileprivate let field: AXUIElement?
-        fileprivate(set) var typed: [Unicode.Scalar] = []
-        fileprivate var target: [Unicode.Scalar] = []
-        fileprivate var isFinal = false
-        fileprivate var finishedAt: Date?
+        /// The text to insert; nil until the dictation has finished.
+        fileprivate var text: [Unicode.Scalar]?
+        fileprivate var sent = 0
+        fileprivate var finishedAt = Date()
 
         fileprivate init(app: pid_t, field: AXUIElement?) {
             self.app = app
@@ -26,21 +26,21 @@ final class Typist {
         }
     }
 
-    /// Called when typing starts or stops waiting, and when everything has been typed.
+    /// Called when insertion starts or stops waiting, and when everything has been inserted.
     var onChange: (() -> Void)?
-    /// Focus is somewhere other than the target field, so typing is paused until it returns.
+    /// Focus is somewhere other than the target field, so insertion is paused until it returns.
     private(set) var isWaiting = false
     var isBusy: Bool { !jobs.isEmpty }
 
     private var jobs: [Job] = []
     private var running = false
     private let source = CGEventSource(stateID: .privateState)
-    /// Text that could not be delivered within this long after its dictation ended is abandoned.
+    /// Text that could not be inserted within this long after its dictation ended is abandoned.
     private let patience: TimeInterval = 120
 
     init() {
         source?.localEventsSuppressionInterval = 0
-        // An app that does not answer must not freeze typing: focus questions give up quickly.
+        // An app that does not answer must not freeze insertion: focus questions give up quickly.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
     }
 
@@ -55,21 +55,13 @@ final class Typist {
         return job
     }
 
-    /// Sets the newest transcript. After `final`, the job accepts no more changes.
-    func set(_ text: String, for job: Job, final: Bool = false) {
-        guard !job.isFinal else { return }
-        job.target = text.precomposedStringWithCanonicalMapping.unicodeScalars.map {
+    /// Hands over the job's final text. Empty text ends the job without inserting anything.
+    func insert(_ text: String, for job: Job) {
+        guard job.text == nil else { return }
+        job.text = text.precomposedStringWithCanonicalMapping.unicodeScalars.map {
             $0.properties.generalCategory == .control ? " " : $0
         }
-        job.isFinal = final
-        if final { job.finishedAt = Date() }
-    }
-
-    /// Ends a job leaving whatever has been typed so far.
-    func keepTyped(_ job: Job) {
-        guard !job.isFinal else { return }
-        job.target = job.typed
-        job.isFinal = true
+        job.finishedAt = Date()
     }
 
     static func focusedApp() -> pid_t? {
@@ -110,16 +102,16 @@ final class Typist {
         running = true
         Task {
             while let job = jobs.first {
-                if job.typed == job.target {
-                    if job.isFinal { jobs.removeFirst() } else { try? await Task.sleep(for: .milliseconds(15)) }
+                guard let text = job.text else {
+                    try? await Task.sleep(for: .milliseconds(15))   // still recording
                     continue
                 }
-                if NSRunningApplication(processIdentifier: job.app) == nil {
-                    jobs.removeFirst()   // the target app quit
+                if job.sent == text.count || NSRunningApplication(processIdentifier: job.app) == nil {
+                    jobs.removeFirst()   // done, or the target app quit
                     continue
                 }
                 guard Self.isFocused(job) else {
-                    if let finishedAt = job.finishedAt, Date().timeIntervalSince(finishedAt) > patience {
+                    if Date().timeIntervalSince(job.finishedAt) > patience {
                         jobs.removeFirst()   // the user never came back to this field
                         continue
                     }
@@ -128,15 +120,9 @@ final class Typist {
                     continue
                 }
                 setWaiting(false)
-                let common = zip(job.typed, job.target).prefix { $0 == $1 }.count
-                if job.typed.count > common {
-                    post(key: 51)   // backspace: one Unicode scalar
-                    job.typed.removeLast()
-                } else {
-                    let chunk = Self.chunk(job.target[common...])
-                    post(key: 49, text: chunk.flatMap { Array(String($0).utf16) })
-                    job.typed.append(contentsOf: chunk)
-                }
+                let chunk = Self.chunk(text[job.sent...])
+                post(chunk.flatMap { Array(String($0).utf16) })
+                job.sent += chunk.count
                 try? await Task.sleep(for: .milliseconds(2))
             }
             running = false
@@ -151,7 +137,7 @@ final class Typist {
         onChange?()
     }
 
-    /// The next scalars to type: as many as fit in 20 UTF-16 units, the safe size for one key event.
+    /// The next scalars to send: as many as fit in 20 UTF-16 units, the safe size for one key event.
     private static func chunk(_ scalars: ArraySlice<Unicode.Scalar>) -> [Unicode.Scalar] {
         var result: [Unicode.Scalar] = []
         var units = 0
@@ -163,12 +149,13 @@ final class Typist {
         return result
     }
 
-    /// Posts one key press. Modifier flags are cleared so a held Right Option does not change the meaning.
-    private func post(key: CGKeyCode, text: [UniChar] = []) {
+    /// Posts one key press carrying the text. Modifier flags are cleared so a held Right Option
+    /// does not change its meaning.
+    private func post(_ text: [UniChar]) {
         for down in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { continue }
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: 49, keyDown: down) else { continue }
             event.flags = []
-            if !text.isEmpty { event.keyboardSetUnicodeString(stringLength: text.count, unicodeString: text) }
+            event.keyboardSetUnicodeString(stringLength: text.count, unicodeString: text)
             event.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
             event.post(tap: .cghidEventTap)
         }

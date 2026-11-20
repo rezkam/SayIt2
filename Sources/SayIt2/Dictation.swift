@@ -4,8 +4,8 @@ import AppKit
 /// Live text only goes to the pill; the text field receives the final text once, at the end.
 ///
 /// It keeps every audio byte the provider has not finalized. If a connection fails, a new
-/// one replays that audio, and the typist converges on the new transcript, so a retry can
-/// neither lose nor duplicate text.
+/// one replays that audio, so a retry can neither lose nor duplicate text: nothing reaches the
+/// text field until the end.
 @MainActor
 final class Dictation {
     let handsFree: Bool
@@ -58,7 +58,7 @@ final class Dictation {
         do {
             try mic.start(sampleRate: config.provider.sampleRate)
         } catch {
-            typist.keepTyped(job)
+            typist.insert("", for: job)
             throw error
         }
     }
@@ -85,11 +85,11 @@ final class Dictation {
         }
     }
 
-    /// Abandons the recording, leaving whatever was already typed.
+    /// Abandons the recording without inserting anything.
     func cancel() {
         guard !ended else { return }
         close()
-        typist.keepTyped(job)
+        typist.insert("", for: job)
         onEnd?(nil)
     }
 
@@ -115,7 +115,7 @@ final class Dictation {
             guard let self, self.stream === stream else { return }
             self.failures = 0
             // Keep the part of the interim text this final did not reach, until the next
-            // interim replaces it. Otherwise those words would be erased and typed again.
+            // interim replaces it. Otherwise those words would blink out of the pill.
             self.live = self.live.hasPrefix(text) ? String(self.live.dropFirst(text.count)).trimmingCharacters(in: .whitespaces) : ""
             if !text.isEmpty { self.finals.append(text) }
             // The audio behind this final is no longer needed for a replay.
@@ -215,7 +215,7 @@ final class Dictation {
         close()
         // After a failure, insert the best text received so far rather than losing the speech.
         let text = problem != nil && catchingUp ? shown : currentText
-        typist.set(text.isEmpty ? "" : text + " ", for: job, final: true)
+        typist.insert(text.isEmpty ? "" : text + " ", for: job)
         onEnd?(problem)
     }
 

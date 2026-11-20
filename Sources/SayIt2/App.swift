@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import ApplicationServices
 
-/// The menu bar item, and the wiring between hotkey, recordings, typing, and the pill.
+/// The menu bar item, and the wiring between hotkey, recordings, text insertion, and the pill.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

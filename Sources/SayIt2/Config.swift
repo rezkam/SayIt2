@@ -94,7 +94,7 @@ struct Config {
 
     # ---------- ChatGPT ----------
     # Uses the sign-in of the ChatGPT desktop app on this Mac. Nothing to set.
-    # The text is typed exactly as ChatGPT returns it.
+    # The text is inserted exactly as ChatGPT returns it.
 
     # ---------- Deepgram ----------
     deepgram.api_key =
