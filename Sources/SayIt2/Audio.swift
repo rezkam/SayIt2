@@ -26,8 +26,13 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     var onInterrupted: (() -> Void)?
 
     private let session = AVCaptureSession()
+    /// Once the session runs, it is only touched on this queue: starting or stopping it while
+    /// another thread changes its inputs raises an exception that ends the app.
     private let queue = DispatchQueue(label: "sayit2.microphone")
     private var observers: [NSObjectProtocol] = []
+    /// The microphone recording, or about to after a recovery. On the main queue, for the
+    /// disconnect notice.
+    private var inUse: AVCaptureDevice?
     // Health, on the main queue.
     private var started = Date()
     private var lastAudio: Date?
@@ -42,6 +47,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         guard let device = device ?? Microphones.systemDefault else { throw Problem(message: "No microphone", retryable: false) }
         try use(device)
+        inUse = device
         let output = AVCaptureAudioDataOutput()
         // macOS delivers exactly the wire format: the provider's rate, mono, 16-bit.
         output.audioSettings = [
@@ -55,7 +61,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: .AVCaptureDeviceWasDisconnected, object: nil, queue: .main) { [weak self] note in
-                guard let self, note.object as? AVCaptureDevice == self.current else { return }
+                guard let self, note.object as? AVCaptureDevice == self.inUse else { return }
                 self.recover(because: "Microphone disconnected")
             },
             center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: .main) { [weak self] _ in
@@ -97,6 +103,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
     }
 
+    /// The session's own view of its microphone, on `queue`.
     private var current: AVCaptureDevice? { (session.inputs.first as? AVCaptureDeviceInput)?.device }
 
     private func use(_ device: AVCaptureDevice) throws {
@@ -119,13 +126,14 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             return
         }
         let fallback = Microphones.systemDefault
-        if let fallback, fallback != current, (try? use(fallback)) != nil {
-            log.notice("switched to the system default: \(Self.kind(of: fallback), privacy: .public)")
-        }
+        inUse = fallback ?? inUse
         started = Date()
         lastAudio = nil
-        queue.async { [session] in
+        queue.async { [self] in
             session.stopRunning()
+            if let fallback, fallback != current, (try? use(fallback)) != nil {
+                log.notice("switched to the system default: \(Self.kind(of: fallback), privacy: .public)")
+            }
             session.startRunning()
         }
     }
