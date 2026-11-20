@@ -3,8 +3,8 @@ import Sparkle
 
 /// Checks for new releases with Sparkle, once a day and on request.
 ///
-/// A newer version found by the daily check is not shown in a window. It appears as an
-/// "Update to X.Y.Z…" item at the top of the menu, and the menu bar icon gets a badge.
+/// A newer version found by the daily check is not shown in a window, and the menu bar icon
+/// does not change. It appears only as an "Update to X.Y.Z…" item at the top of the menu.
 /// Sparkle downloads the update, verifies its signature, and installs it.
 @MainActor
 final class Updates: NSObject, SPUStandardUserDriverDelegate {

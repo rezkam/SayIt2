@@ -198,7 +198,7 @@ missing. The menu's first line shows the version and build.
 - Updates: Sparkle reads `https://github.com/<repo>/releases/latest/download/appcast.xml` once a
   day. It requires a signed feed and a signed archive, verified with the public key in the app.
   The private key is in the login Keychain (Sparkle account `sayit2`), never in the repository.
-  A newer version appears in the menu as "Update to SayIt2 X.Y.Z…" with a dot on the icon;
+  A newer version appears only in the menu, as "Update to SayIt2 X.Y.Z…" (the icon does not change);
   choosing it opens Sparkle's window, which downloads, verifies, installs and relaunches.
   Builds without a known GitHub repository have updates switched off.
 - Signing identity, notary profile, bundle ID and repository come from environment variables

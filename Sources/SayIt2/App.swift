@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             iconTimer?.invalidate()
             iconTimer = nil
             iconEnergy = 0
-            statusItem.button?.image = Self.icon(dimmed: attention != nil, badge: attention != nil || updates.available != nil)
+            statusItem.button?.image = Self.icon(attention: attention != nil)
         }
     }
 
@@ -196,17 +196,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Four black bars. At rest they have fixed heights; while recording `amounts` (0...1) sets them.
-    /// Dimmed when something is missing. A badge marks something missing or an update to install.
-    private static func icon(amounts: [CGFloat]? = nil, dimmed: Bool = false, badge: Bool = false) -> NSImage {
+    /// Dimmed with a badge when something is missing.
+    private static func icon(amounts: [CGFloat]? = nil, attention: Bool = false) -> NSImage {
         let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
             let rest: [CGFloat] = [4, 10, 6, 12]
-            NSColor.black.withAlphaComponent(dimmed ? 0.45 : 1).setFill()
+            NSColor.black.withAlphaComponent(attention ? 0.45 : 1).setFill()
             for index in 0..<4 {
                 let height = amounts.map { 3 + 11 * $0[index] } ?? rest[index]
                 let bar = NSRect(x: CGFloat(4 + 4 * index), y: 8 - height / 2, width: 2.2, height: height)
                 NSBezierPath(roundedRect: bar, xRadius: 1.1, yRadius: 1.1).fill()
             }
-            if badge {
+            if attention {
                 NSColor.black.setFill()
                 NSBezierPath(ovalIn: NSRect(x: 16.5, y: 9, width: 5.5, height: 5.5)).fill()
             }
