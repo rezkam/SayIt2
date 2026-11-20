@@ -53,6 +53,13 @@ xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature --verbose "$dmg"
 
+# Debug symbols to Sentry, so crash reports from this release show function names.
+dsn="$(/usr/libexec/PlistBuddy -c "Print :SentryDSN" "$app/Contents/Info.plist" 2>/dev/null || true)"
+if [[ -n "$dsn" ]]; then
+    command -v sentry >/dev/null || fail "install and sign in to the sentry tool to upload debug symbols"
+    SENTRY_DSN="$dsn" sentry debug-files upload build/SayIt2.dSYM --type dsym
+fi
+
 # Update feed: one item for this release, with the DMG's signature, then the feed itself signed.
 signature="$("$sparkle/bin/sign_update" --account sayit2 -p "$dmg")"
 url="https://github.com/$repo/releases/download/v$version/SayIt2-$version.dmg"
