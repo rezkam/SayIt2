@@ -7,6 +7,8 @@ let log = Logger(subsystem: "sayit2", category: "app")
 struct Problem: Error {
     let message: String
     var retryable = true
+    /// The ChatGPT sign-in was rejected as expired; renewing it may fix this.
+    var renewLogin = false
 }
 
 enum Provider: String, CaseIterable {

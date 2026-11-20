@@ -31,7 +31,7 @@ scripts are in `.agents/probes/` (not committed).
 | Deepgram stop | Send `CloseStream`; server flushes remaining finals, sends `Metadata`, closes with 1000 (about 250 ms). `Metadata` or the clean close is the end marker | Observed |
 | Deepgram idle timeout | Connection closes after 10 s with no audio and no `KeepAlive` (text frame). Not a concern while audio flows continuously | Observed (docs) |
 | Deepgram catch-up speed | In `multi` mode, replayed audio was processed at only about 1.3x real time | Observed |
-| Deepgram word loss | In streaming, a final segment sometimes comes back shorter than its own interim text, losing one to five words at a segment boundary. Seen with `language=multi` and `language=en`, with several `endpointing` values, and not repeatable run to run (the same recording gave 99 words once and all 104 the next). ChatGPT returned complete text in every run. Synthetic voice only; real speech not measured | Observed |
+| Deepgram word loss (now repaired, see section 5) | In streaming, a final segment sometimes comes back shorter than its own interim text, losing one to five words at a segment boundary. Seen with `language=multi` and `language=en`, with several `endpointing` values, and not repeatable run to run (the same recording gave 99 words once and all 104 the next). ChatGPT returned complete text in every run. Synthetic voice only; real speech not measured | Observed |
 | ChatGPT hotkey timing | Press starts a hold session, confirmed after 100 ms. A press shorter than 100 ms is a tap. A second press within 400 ms of a tap starts hands-free. A press during hands-free stops it | Observed (installed build 26.1111.21308) |
 | Text insertion without clipboard | Unicode keyboard events in bursts of at most 20 UTF-16 units, already used by SpeakFlow's batch path | Observed in SpeakFlow code; per-app behavior needs your test |
 | Toolchain | The Xcode toolchain builds fine. The second Swift toolchain on PATH fails against the current SDK, so builds go through `xcrun` | Observed |
@@ -48,7 +48,10 @@ Settled on 2026-11-19.
    moves elsewhere (another app, window, or field), typing pauses and resumes when it returns.
 4. **Text as returned:** ChatGPT text is typed exactly as ChatGPT returns it, punctuation included.
    Deepgram returns plain lowercase text unless formatting is enabled in the config file.
-5. **ChatGPT credentials:** read `~/.codex/auth.json` read-only on every connection, never refresh.
+5. **ChatGPT credentials:** use the sign-in in `~/.codex/auth.json`, shared with the ChatGPT app and
+   codex. When the server rejects it as expired, SayIt 2 renews it with the refresh token and
+   writes the renewed tokens back to that file, so the ChatGPT app is never needed.
+   (Changed on 2026-11-20 from read-only: the server ended a token 5 days before its own expiry.)
 6. **Length limit:** auto-finish at 4 min 45 s on ChatGPT (its sessions last 5 minutes), no cap on Deepgram.
 7. **Name:** the app is "SayIt 2" everywhere; `sayit2` or `SayIt2` where a space is not allowed.
 8. **Settings:** one text file, `~/.config/sayit2/config`, opened from the menu with "Edit Config…".
@@ -115,6 +118,11 @@ The file is created with owner-only permissions because it holds the Deepgram ke
    replaces the previous interim after them.
 3. Stop: send `CloseStream`, read until `Metadata`. From then on only finals count: interim
    text that no final confirmed is dropped.
+4. Skipped words: Deepgram's final text sometimes lacks words its own live text had. Live and
+   final words are lined up by text; where both agree on the surrounding words and the final
+   has nothing in between, the live words go back in. Where the final has other words there,
+   it is a correction and the final wins. Checked on the recordings that lost words before:
+   all runs complete (18 of 18), and the long one word for word identical to its script.
 
 **Language notes**
 - ChatGPT: no language setting exists in the stream; detection is automatic. Persian and
@@ -175,16 +183,22 @@ Only the newest transcript matters, so updates can never be applied out of order
 - Needs Accessibility permission (for both the hotkey and typing). If it is missing, the menu
   bar icon shows a warning and the menu offers to open the settings pane.
 
-Known limits: if you move the cursor or type inside the target field while dictating, a later
-correction can backspace the wrong characters. An app that replaces its field object while you
-type can look like a different field, which pauses typing. Apps that ignore synthetic Unicode
-events will not receive text.
+Caret check: before every key press the caret must sit right after SayIt 2's own text. If you
+moved it, clicked elsewhere in the field, or typed, nothing typed so far is deleted any more
+(no further corrections to it) and new text continues at the caret. While text is selected,
+typing waits. An app that reports the caret wrongly three times gets append-only typing.
+Fields that do not report a caret (some terminals) are not checked.
+
+Known limits: an app whose autocorrect changes the length of typed text looks like a moved caret,
+which stops corrections for that dictation. Apps that ignore synthetic Unicode events will not
+receive text.
 
 ## 8. Credentials
 
 - Deepgram: the `deepgram.api_key` line in the config file (owner-only file permissions).
-- ChatGPT: see decision 5. The token's expiry is checked locally before connecting so the
-  message is clear ("open ChatGPT to sign in") instead of a failed connection.
+- ChatGPT: see decision 5. Renewal uses the same lock file as codex (`auth.json.lock`), skips
+  renewing if another app already renewed, and replaces the file in one step with owner-only
+  permissions. A refused renewal means "Sign in to ChatGPT again" (ChatGPT app or `codex login`).
 
 ## 9. Reliability
 
@@ -200,7 +214,8 @@ back so text already typed is not erased and retyped.
 | Reconnect on Deepgram | Resumes after its last final, so only a few seconds are replayed |
 | Reconnect on ChatGPT | Replays the recording, paced at about 8x real time |
 | ChatGPT asks the client to stop (`session.stop_requested`) | Finish normally |
-| ChatGPT token expired, missing, or rejected | "Open ChatGPT to sign in". The file is re-read on each retry |
+| ChatGPT token expired or rejected (401) | Renew the sign-in once, then reconnect and replay. If renewal is refused: "Sign in to ChatGPT again" |
+| ChatGPT sign-in missing | "Sign in to ChatGPT" |
 | Deepgram key missing | "Add the Deepgram key in the config" |
 | Deepgram refuses the connection | 401 "key rejected", 403 "no access to this model" (often a misspelled model name), 400 "rejected the config". Not retried |
 | Microphone missing, denied, or changed mid-recording | Cannot be resumed: stop and finish with what was captured |
@@ -234,8 +249,9 @@ five white bars that follow your voice. The mockups still show it at the top.
 The pill is a borderless, click-through, non-activating panel above all apps and full-screen
 spaces. It never takes focus. No sounds anywhere.
 
-Menu bar icon (bars glyph): normal when ready, red while recording, dimmed with a badge when
-something is missing (Accessibility, microphone, or the selected provider's credentials).
+Menu bar icon (bars glyph): always black (template image, so it follows a dark menu bar). While
+recording, its four bars move with your voice. Dimmed with a badge when something is missing
+(Accessibility, microphone, or the selected provider's credentials).
 
 ## 11. Build, sign, version
 

@@ -9,6 +9,10 @@ let syntheticEventTag: Int64 = 0x5341_5932
 /// Each job remembers exactly what it has typed. One loop makes that equal the newest
 /// transcript: type what is missing, or backspace to the common prefix first. Only the
 /// newest transcript matters, so updates can never be applied twice or out of order.
+///
+/// Before each key press it checks that the caret is still right after the job's own text.
+/// If the user moved it or edited the field, nothing typed so far is ever deleted again
+/// and new text continues at the caret.
 @MainActor
 final class Typist {
     final class Job {
@@ -19,6 +23,13 @@ final class Typist {
         fileprivate var target: [Unicode.Scalar] = []
         fileprivate var isFinal = false
         fileprivate var finishedAt: Date?
+        /// `typed[..<fixed]` can no longer be corrected: the caret left it.
+        fileprivate var fixed = 0
+        /// Caret position (UTF-16) where `typed[fixed...]` begins, once known.
+        fileprivate var base: Int?
+        /// How often the caret was not where expected. An app that keeps reporting it wrongly
+        /// gets append-only typing, which never deletes anything.
+        fileprivate var surprises = 0
 
         fileprivate init(app: pid_t, field: AXUIElement?) {
             self.app = app
@@ -110,7 +121,8 @@ final class Typist {
         running = true
         Task {
             while let job = jobs.first {
-                if job.typed == job.target {
+                let common = Self.common(job)
+                if job.typed.count == common, common >= job.target.count {
                     if job.isFinal { jobs.removeFirst() } else { try? await Task.sleep(for: .milliseconds(15)) }
                     continue
                 }
@@ -118,9 +130,10 @@ final class Typist {
                     jobs.removeFirst()   // the target app quit
                     continue
                 }
-                guard Self.isFocused(job) else {
+                // Wait while focus is elsewhere, or while text is selected (typing would replace it).
+                guard Self.isFocused(job), await caretIsReady(job) else {
                     if let finishedAt = job.finishedAt, Date().timeIntervalSince(finishedAt) > patience {
-                        jobs.removeFirst()   // the user never came back to this field
+                        jobs.removeFirst()   // the user never came back
                         continue
                     }
                     setWaiting(true)
@@ -128,12 +141,12 @@ final class Typist {
                     continue
                 }
                 setWaiting(false)
-                let common = zip(job.typed, job.target).prefix { $0 == $1 }.count
-                if job.typed.count > common {
+                let current = Self.common(job)   // the caret check may have fixed more text
+                if job.typed.count > current {
                     post(key: 51)   // backspace: one Unicode scalar
                     job.typed.removeLast()
-                } else {
-                    let chunk = Self.chunk(job.target[common...])
+                } else if current < job.target.count {
+                    let chunk = Self.chunk(job.target[current...])
                     post(key: 49, text: chunk.flatMap { Array(String($0).utf16) })
                     job.typed.append(contentsOf: chunk)
                 }
@@ -143,6 +156,55 @@ final class Typist {
             isWaiting = false
             onChange?()
         }
+    }
+
+    /// How much of what was typed stays: the part matching the newest transcript, and never less
+    /// than the fixed part. Beyond the fixed part the transcript is compared from the same index.
+    private static func common(_ job: Job) -> Int {
+        let prefix = zip(job.typed, job.target).prefix { $0 == $1 }.count
+        if prefix >= job.fixed { return prefix }
+        guard job.target.count > job.fixed else { return job.fixed }
+        return job.fixed + zip(job.typed[job.fixed...], job.target[job.fixed...]).prefix { $0 == $1 }.count
+    }
+
+    /// Checks that the caret sits right after the job's unfixed text. Returns false while text is
+    /// selected. If the caret moved, the text typed so far becomes fixed and typing continues there.
+    /// Fields that do not report a caret are not checked.
+    private func caretIsReady(_ job: Job) async -> Bool {
+        guard job.surprises < 3,
+              let field = Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()),
+              var caret = Self.selection(of: field)
+        else {
+            job.fixed = job.surprises >= 3 ? job.typed.count : job.fixed
+            return true
+        }
+        if caret.length > 0 { return false }
+        let pending = String(String.UnicodeScalarView(job.typed[job.fixed...])).utf16.count
+        guard let base = job.base, pending > 0 else {
+            job.base = caret.location - pending
+            return true
+        }
+        // The app may not have handled the last key press yet, so give it a moment to catch up.
+        for _ in 0..<15 where caret.location != base + pending {
+            try? await Task.sleep(for: .milliseconds(10))
+            guard let again = Self.selection(of: field) else { return true }
+            caret = again
+        }
+        if caret.location != base + pending {
+            log.notice("caret moved during dictation; earlier text left as is")
+            job.surprises += 1
+            job.fixed = job.typed.count
+            job.base = caret.location
+        }
+        return caret.length == 0
+    }
+
+    private static func selection(of field: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(field, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        return AXValueGetValue(value as! AXValue, .cfRange, &range) ? range : nil
     }
 
     private func setWaiting(_ waiting: Bool) {

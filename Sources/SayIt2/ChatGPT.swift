@@ -73,9 +73,11 @@ final class ChatGPTStream: Transcriber {
     }
 
     override func closed(status: Int) -> Problem {
-        status == 401 || status == 403
-            ? Problem(message: "Open ChatGPT to sign in", retryable: false)
-            : Problem(message: "Can't reach ChatGPT")
+        switch status {
+        case 401: Problem(message: "ChatGPT sign-in expired", retryable: false, renewLogin: true)
+        case 403: Problem(message: "ChatGPT refused the connection", retryable: false)
+        default: Problem(message: "Can't reach ChatGPT")
+        }
     }
 
     private func send(json: [String: Any]) {

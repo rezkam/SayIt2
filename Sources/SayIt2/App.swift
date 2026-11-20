@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let indicator = Indicator()
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
+    private var iconTimer: Timer?
+    private var iconEnergy: CGFloat = 0
     private var trusted = false
     private var checkedOnce = false
 
@@ -83,7 +85,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             indicator.show(.hidden)
         }
-        statusItem.button?.image = Self.icon(recording: recording != nil, attention: attention != nil)
+        if recording != nil {
+            if iconTimer == nil {
+                iconTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.animateIcon() }
+                }
+            }
+        } else {
+            iconTimer?.invalidate()
+            iconTimer = nil
+            iconEnergy = 0
+            statusItem.button?.image = Self.icon(attention: attention != nil)
+        }
     }
 
     /// What the user needs to fix before dictation can work, if anything.
@@ -92,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
         let config = Config.load()
         if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in the config" }
-        if config.provider == .chatgpt, (try? Credentials.chatGPT()) == nil { return "Open ChatGPT to sign in" }
+        if config.provider == .chatgpt, !Credentials.hasChatGPTLogin { return "Sign in to ChatGPT (ChatGPT app or codex)" }
         return nil
     }
 
@@ -149,14 +162,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Menu bar icon
 
-    /// Four bars: plain when ready, red while recording, dimmed with a badge when something is missing.
-    private static func icon(recording: Bool, attention: Bool) -> NSImage {
+    /// Redraws the menu bar icon while recording, so its bars follow the voice like the pill's.
+    private func animateIcon() {
+        guard recording != nil else {
+            iconTimer?.invalidate()
+            iconTimer = nil
+            iconEnergy = 0
+            return
+        }
+        iconEnergy += (CGFloat(indicator.level) - iconEnergy) * 0.4
+        let time = CACurrentMediaTime()
+        let rates: [Double] = [5.1, 7.3, 6.2, 8.4], phases: [Double] = [0, 1.3, 2.1, 0.6]
+        let amounts = (0..<4).map { CGFloat(0.2 + 0.8 * abs(sin(time * rates[$0] + phases[$0]))) * iconEnergy }
+        statusItem.button?.image = Self.icon(amounts: amounts, attention: false)
+    }
+
+    /// Four black bars. At rest they have fixed heights; while recording `amounts` (0...1) sets them.
+    /// Dimmed with a badge when something is missing.
+    private static func icon(amounts: [CGFloat]? = nil, attention: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
-            let bars: [(x: CGFloat, height: CGFloat)] = [(4, 4), (8, 10), (12, 6), (16, 12)]
-            let color = recording ? NSColor(red: 0.9, green: 0.22, blue: 0.17, alpha: 1) : NSColor.black
-            color.withAlphaComponent(attention ? 0.45 : 1).setFill()
-            for bar in bars {
-                NSBezierPath(roundedRect: NSRect(x: bar.x, y: 8 - bar.height / 2, width: 2.2, height: bar.height), xRadius: 1.1, yRadius: 1.1).fill()
+            let rest: [CGFloat] = [4, 10, 6, 12]
+            NSColor.black.withAlphaComponent(attention ? 0.45 : 1).setFill()
+            for index in 0..<4 {
+                let height = amounts.map { 3 + 11 * $0[index] } ?? rest[index]
+                let bar = NSRect(x: CGFloat(4 + 4 * index), y: 8 - height / 2, width: 2.2, height: height)
+                NSBezierPath(roundedRect: bar, xRadius: 1.1, yRadius: 1.1).fill()
             }
             if attention {
                 NSColor.black.setFill()
@@ -164,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return true
         }
-        image.isTemplate = !recording   // template images follow the menu bar's light or dark look
+        image.isTemplate = true   // drawn in the menu bar's own text color, black on a light menu bar
         return image
     }
 }

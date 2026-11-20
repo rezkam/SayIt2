@@ -30,6 +30,7 @@ final class Dictation {
     private var finals: [String] = []
     private var live = ""
     private var failures = 0        // connection failures in a row
+    private var renewedLogin = false
     private var catchingUp = false  // a replay is running; its transcript is still behind what was typed
     private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
     private var finishedAt: Date?   // when the provider was told there is no more audio
@@ -178,6 +179,21 @@ final class Dictation {
     }
 
     private func lost(_ problem: Problem) {
+        if problem.renewLogin, !renewedLogin {
+            // Renew the ChatGPT sign-in once, then connect again. Audio keeps being buffered meanwhile.
+            renewedLogin = true
+            catchingUp = true
+            Task { [weak self] in
+                do {
+                    try await Credentials.renewChatGPT()
+                    guard let self, !self.ended, self.stream == nil else { return }
+                    self.connect()
+                } catch {
+                    self?.complete(problem: (error as? Problem)?.message ?? "Sign in to ChatGPT again")
+                }
+            }
+            return
+        }
         failures += 1
         log.notice("connection lost: \(problem.message, privacy: .public), failure \(self.failures)")
         guard problem.retryable, failures <= 2 else { return complete(problem: problem.message) }
