@@ -1,6 +1,7 @@
 import AppKit
 
-/// One recording, from the key press until its text is handed to the typist.
+/// One recording, from the key press until its final text is handed to the typist.
+/// Live text only goes to the pill; the text field receives the final text once, at the end.
 ///
 /// It keeps every audio byte the provider has not finalized. If a connection fails, a new
 /// one replays that audio, and the typist converges on the new transcript, so a retry can
@@ -10,6 +11,8 @@ final class Dictation {
     let handsFree: Bool
     private(set) var isRecording = true
     var onLevel: ((Float) -> Void)?
+    /// The newest live text, for the pill.
+    var onText: ((String) -> Void)?
     /// Recording stopped; the final text is still on its way.
     var onStopped: (() -> Void)?
     /// Everything is done. Carries a message if something went wrong.
@@ -31,7 +34,8 @@ final class Dictation {
     private var live = ""
     private var failures = 0        // connection failures in a row
     private var renewedLogin = false
-    private var catchingUp = false  // a replay is running; its transcript is still behind what was typed
+    private var catchingUp = false  // a replay is running; its transcript is still behind what was shown
+    private var shown = ""           // the best text so far
     private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
     private var finishedAt: Date?   // when the provider was told there is no more audio
     private var sawKeyDown = false
@@ -168,10 +172,12 @@ final class Dictation {
     private func render() {
         let text = currentText
         if catchingUp {
-            guard text.unicodeScalars.count >= job.typed.count else { return }
+            // A replay starts over; keep showing the earlier text until it catches up.
+            guard text.count >= shown.count else { return }
             catchingUp = false
         }
-        typist.set(text, for: job)
+        shown = text
+        onText?(text)
     }
 
     private var currentText: String {
@@ -207,12 +213,9 @@ final class Dictation {
     private func complete(problem: String?) {
         guard !ended else { return }
         close()
-        let text = currentText
-        if catchingUp, problem != nil {
-            typist.keepTyped(job)   // an unfinished replay must not erase what was already typed
-        } else {
-            typist.set(text.isEmpty ? "" : text + " ", for: job, final: true)
-        }
+        // After a failure, insert the best text received so far rather than losing the speech.
+        let text = problem != nil && catchingUp ? shown : currentText
+        typist.set(text.isEmpty ? "" : text + " ", for: job, final: true)
         onEnd?(problem)
     }
 

@@ -19,6 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var recording: Dictation? { dictations.last { $0.isRecording } }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Vazirmatn (SIL Open Font License) draws Persian words in the pill.
+        if let font = Bundle.main.url(forResource: "Vazirmatn", withExtension: "ttf") {
+            CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
+        }
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -55,7 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             let config = Config.load()
             let dictation = try Dictation(config: config, handsFree: handsFree, typist: typist)
+            indicator.setText("")
             dictation.onLevel = { [weak self] level in self?.indicator.level = level }
+            dictation.onText = { [weak self] text in self?.indicator.setText(text) }
             dictation.onStopped = { [weak self] in self?.refresh() }
             dictation.onEnd = { [weak self, weak dictation] problem in
                 self?.dictations.removeAll { $0 === dictation }

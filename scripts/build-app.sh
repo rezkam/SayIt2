@@ -22,6 +22,8 @@ binary="$(xcrun swift build -c release --show-bin-path)/SayIt2"
 app="build/SayIt 2.app"
 mkdir -p "$app/Contents/MacOS"
 cp -f "$binary" "$app/Contents/MacOS/SayIt2"
+mkdir -p "$app/Contents/Resources"
+cp -f Resources/Fonts/Vazirmatn.ttf Resources/Fonts/Vazirmatn-OFL.txt "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

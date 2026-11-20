@@ -42,8 +42,11 @@ Settled on 2026-11-19.
 
 1. **Indicator:** concept A (pill), voice bars only, white accent, size M, menu bar glyph 2 (bars).
    Placed at the bottom of the screen, just above the Dock.
-2. **Live text:** typed straight into the focused text field while you speak, with corrections.
-   The pill shows no text (except a short message when something is wrong).
+2. **Live text:** shown in the pill while you speak (concept A of `docs/pill-mockups.html`, the
+   growing pill: wraps onto up to 4 lines, newest words kept, Persian in Vazirmatn). The text
+   field receives the final text once, when the provider has finished, like ChatGPT's own
+   cross-app dictation. Nothing is typed or corrected in the field while you speak.
+   (Changed in 0.4.0 from live typing with corrections.)
 3. **Focus:** the text field that was focused when dictation started is the target. If focus
    moves elsewhere (another app, window, or field), typing pauses and resumes when it returns.
 4. **Text as returned:** ChatGPT text is typed exactly as ChatGPT returns it, punctuation included.
@@ -154,38 +157,31 @@ dictation cannot start there.
 
 ## 7. Text insertion
 
-Live typing with a single rule: SayIt 2 remembers exactly what it has typed (`typed`) and what
-the transcript currently says (`target`). One loop makes `typed` equal `target`:
-
-- If `typed` is a prefix of `target`: type the missing part (Unicode key events, at most
-  20 UTF-16 units per event).
-- Otherwise: backspace to the common prefix, then type.
-
-Only the newest transcript matters, so updates can never be applied out of order or twice.
+The final text is inserted once, after the provider's final result (about 0.5 to 1 s after you
+stop), as Unicode key events of at most 20 UTF-16 units each. No backspaces or corrections are
+ever sent to the field. If a dictation ends with an error, the best text received so far is
+inserted anyway. Cancelling (another key pressed with Right Option) inserts nothing.
 
 - Before every key event the focus is checked. Typing continues only while the text field
   that had focus when dictation started still has it: the same element, or the original
   element still reporting itself focused. Another app, another window, or another field in the
-  same app pauses typing until focus returns. Apps that expose no field information are
-  checked at the app level only.
+  same app pauses until focus returns. Apps that expose no field information are checked at
+  the app level only.
 - Text that could not be delivered within two minutes after its dictation ended is abandoned.
 - Starting a new dictation in a different app abandons text still waiting for another app.
-  Dictations into the same app are typed in order.
-- Events carry no modifier flags, so text and backspaces behave normally while Right Option
-  is still held.
-- Backspaces are counted in Unicode scalars of NFC text. Checked in a native text view: this
-  is correct for Latin, Persian, and the zero-width non-joiner.
-- A trailing space is added when a dictation finishes.
-- The clipboard is never read or written.
+  Dictations into the same app are inserted in order.
+- Events carry no modifier flags, so text arrives unchanged while Right Option is still held.
+- A trailing space is added.
+- The clipboard is never read or written. Unicode key events were chosen over ChatGPT's
+  clipboard-and-paste method: they reached every app tried so far, Ghostty included, and leave
+  the clipboard alone. They can fail in apps that read raw key codes (remote desktop, virtual
+  machines, some games and Java apps).
 - Needs Accessibility permission (for both the hotkey and typing). If it is missing, the menu
   bar icon shows a warning and the menu offers to open the settings pane.
 
-Known limits: if you move the cursor or type inside the target field while dictating, a later
-correction can backspace the wrong characters. A check of the cursor position was tried in 0.3.0
-and removed in 0.3.3: apps report the position in ways that made it misfire during normal
-dictation, which garbled text. An app that replaces its field object while you type can look
-like a different field, which pauses typing. Apps that ignore synthetic Unicode events will not
-receive text.
+Known limits: if you move the cursor before the final text arrives, it is inserted at the new
+cursor position. An app that replaces its field object can look like a different field, which
+pauses insertion.
 
 ## 8. Credentials
 
@@ -234,10 +230,10 @@ five white bars that follow your voice. The mockups still show it at the top.
 | State | Pill |
 | --- | --- |
 | Idle | Not on screen |
-| Hold | Bars follow the voice level |
+| Hold | Bars follow the voice level; the live words beside them, wrapping upward |
 | Hands-free | Same, plus a small square ("tap to stop") |
 | Finishing | Bars turn into a slow wave |
-| Waiting for the target app | Bars dim and stand still |
+| Waiting for the target field | Bars dim and stand still, words dimmed |
 | Problem | Red flat bars and a short message for 3 s |
 
 The pill is a borderless, click-through, non-activating panel above all apps and full-screen
@@ -272,7 +268,7 @@ Checked so far:
 
 Not yet exercised with a real key press and voice: the list below.
 
-1. Hold Right Option in a text editor, speak English, release: text appears as you speak, once, clipboard unchanged.
+1. Hold Right Option in a text editor, speak English, release: words appear in the pill as you speak, then the text arrives once, clipboard unchanged.
 2. Same in Persian.
 3. Double-tap, speak, pause, speak, tap: one insertion.
 4. Short single tap: nothing happens.

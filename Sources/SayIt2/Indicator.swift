@@ -1,6 +1,6 @@
 import AppKit
 
-/// The black pill that rises at the bottom of the screen, just above the Dock, while SayIt 2 is listening.
+/// The black pill just above the Dock while SayIt 2 is listening: voice bars and the live words.
 @MainActor
 final class Indicator {
     enum State: Equatable { case hidden, listening, handsFree, finishing, waiting }
@@ -33,6 +33,13 @@ final class Indicator {
         update()
     }
 
+    /// The live words. Long text wraps; only the newest lines are shown.
+    func setText(_ text: String) {
+        guard view.text != text else { return }
+        view.text = text
+        if isShown { update() }
+    }
+
     /// Shows a short problem message for three seconds.
     func flash(_ message: String) {
         view.message = message
@@ -49,9 +56,10 @@ final class Indicator {
         let visible = view.state != .hidden || view.message != nil
         guard visible else { return hide() }
         guard let screen = NSScreen.main else { return }
-        // Sit just above the Dock. With the Dock hidden or on a side, that is just above the screen's bottom edge.
+        // Sit just above the Dock (or the bottom edge when the Dock is hidden or on a side),
+        // growing upward as the text wraps.
         let size = view.fittingSize
-        let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.visibleFrame.minY + 8,
+        let frame = NSRect(x: (screen.frame.midX - size.width / 2).rounded(), y: screen.visibleFrame.minY + 8,
                            width: size.width, height: size.height)
         if isShown {
             panel.setFrame(frame, display: true)
@@ -87,6 +95,7 @@ final class Indicator {
             MainActor.assumeIsolated {
                 guard let self, !self.isShown else { return }
                 self.panel.orderOut(nil)
+                self.view.text = ""
             }
         })
     }
@@ -99,27 +108,77 @@ final class Indicator {
     }
 }
 
-/// Draws the pill: five voice bars, a square while hands-free, or a problem message.
+/// Draws the pill: five voice bars, the live words (or a problem message), and a square while hands-free.
 private final class PillView: NSView {
     var state: Indicator.State = .hidden
+    var text = ""
     var message: String?
     var energy: CGFloat = 0
     var time: CFTimeInterval = 0
 
-    private let height: CGFloat = 30, padding: CGFloat = 12, gap: CGFloat = 8
+    private let lineHeight: CGFloat = 30, padding: CGFloat = 12, gap: CGFloat = 8, vertical: CGFloat = 7
     private let barWidth: CGFloat = 3, barGap: CGFloat = 2.5, square: CGFloat = 9
+    private let maxTextWidth: CGFloat = 420, maxLines = 4
     private let font = NSFont.systemFont(ofSize: 13, weight: .medium)
+    /// Vazirmatn, bundled with the app, for Persian; the system font if it could not be loaded.
+    private let persianFont: NSFont = {
+        let descriptor = NSFontDescriptor(fontAttributes: [.family: "Vazirmatn", .traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.medium]])
+        guard let vazirmatn = NSFont(descriptor: descriptor, size: 13), vazirmatn.familyName == "Vazirmatn" else {
+            return NSFont.systemFont(ofSize: 13, weight: .medium)
+        }
+        return vazirmatn
+    }()
     private var barsWidth: CGFloat { 5 * barWidth + 4 * barGap }
 
+    /// The words to draw, wrapped to at most `maxLines` lines, keeping the newest words.
+    private var shownText: NSAttributedString? {
+        let raw = message ?? text
+        guard !raw.isEmpty else { return nil }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.alignment = .natural
+        paragraph.baseWritingDirection = .natural   // Persian reads right to left
+        let fade = message == nil && (state == .finishing || state == .waiting)
+        let persian = raw.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || (0xFB50...0xFDFF).contains($0.value) }
+        let font = persian ? persianFont : self.font
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .paragraphStyle: paragraph,
+            .foregroundColor: NSColor.white.withAlphaComponent(fade ? 0.6 : 1),
+        ]
+        let limit = CGFloat(maxLines) * NSLayoutManager().defaultLineHeight(for: font) + 1   // the font chosen above
+        var words = raw.split(separator: " ", omittingEmptySubsequences: true)
+        var candidate = NSAttributedString(string: raw, attributes: attributes)
+        while words.count > 1, height(of: candidate) > limit {
+            words.removeFirst()
+            candidate = NSAttributedString(string: "… " + words.joined(separator: " "), attributes: attributes)
+        }
+        return candidate
+    }
+
+    private func size(of text: NSAttributedString) -> NSSize {
+        let rect = text.boundingRect(with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
+                                     options: [.usesLineFragmentOrigin, .usesFontLeading])
+        return NSSize(width: ceil(rect.width), height: ceil(rect.height))
+    }
+
+    private func height(of text: NSAttributedString) -> CGFloat { size(of: text).height }
+
+    private var showsSquare: Bool { message == nil && state == .handsFree }
+
     override var fittingSize: NSSize {
-        var width = padding * 2 + barsWidth
-        if let message { width += gap + (message as NSString).size(withAttributes: [.font: font]).width }
-        else if state == .handsFree { width += gap + square }
-        return NSSize(width: ceil(width), height: height)
+        var width = padding * 2 + barsWidth, height = lineHeight
+        if let text = shownText {
+            let textSize = size(of: text)
+            width += gap + textSize.width
+            height = max(lineHeight, textSize.height + vertical * 2)
+        }
+        if showsSquare { width += gap + square }
+        return NSSize(width: ceil(width), height: ceil(height))
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: height / 2, yRadius: height / 2)
+        let radius = min(bounds.height / 2, lineHeight / 2)
+        let pill = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
         NSColor.black.setFill()
         pill.fill()
         NSColor.white.withAlphaComponent(0.22).setStroke()   // keeps the pill visible on dark backgrounds
@@ -142,19 +201,21 @@ private final class PillView: NSView {
             }
             let barHeight = 3 + 12 * amount
             let x = padding + CGFloat(index) * (barWidth + barGap)
-            let bar = NSRect(x: x, y: (height - barHeight) / 2, width: barWidth, height: barHeight)
+            let bar = NSRect(x: x, y: (bounds.height - barHeight) / 2, width: barWidth, height: barHeight)
             (message != nil ? NSColor(red: 1, green: 0.42, blue: 0.34, alpha: 1) : NSColor.white.withAlphaComponent(alpha)).setFill()
             NSBezierPath(roundedRect: bar, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
         }
 
-        let x = padding + barsWidth + gap
-        if let message {
-            let size = (message as NSString).size(withAttributes: [.font: font])
-            (message as NSString).draw(at: NSPoint(x: x, y: (height - size.height) / 2),
-                                       withAttributes: [.font: font, .foregroundColor: NSColor.white])
-        } else if state == .handsFree {
+        var x = padding + barsWidth + gap
+        if let text = shownText {
+            let textSize = size(of: text)
+            text.draw(with: NSRect(x: x, y: (bounds.height - textSize.height) / 2, width: textSize.width, height: textSize.height),
+                      options: [.usesLineFragmentOrigin, .usesFontLeading])
+            x += textSize.width + gap
+        }
+        if showsSquare {
             NSColor.white.withAlphaComponent(0.9).setFill()
-            NSBezierPath(roundedRect: NSRect(x: x, y: (height - square) / 2, width: square, height: square), xRadius: 2.5, yRadius: 2.5).fill()
+            NSBezierPath(roundedRect: NSRect(x: x, y: (bounds.height - square) / 2, width: square, height: square), xRadius: 2.5, yRadius: 2.5).fill()
         }
     }
 }
