@@ -28,7 +28,7 @@ fi
 
 bash scripts/build-app.sh --notarize
 app="build/SayIt2.app"
-codesign -dv "$app" 2>&1 | grep -q "flags=0x10000(runtime)" || fail "app is not signed for release"
+[[ "$(codesign -dv "$app" 2>&1)" == *"(runtime)"* ]] || fail "app is not signed for release"
 
 if [[ "$mode" == rc ]]; then
     pkill -x SayIt2 || true
