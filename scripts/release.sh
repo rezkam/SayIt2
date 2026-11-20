@@ -32,6 +32,8 @@ app="build/SayIt2.app"
 
 if [[ "$mode" == rc ]]; then
     pkill -x SayIt2 || true
+    # Replace, not merge: a file left over from an earlier build would break the signature.
+    rm -rf /Applications/SayIt2.app
     ditto "$app" /Applications/SayIt2.app
     open /Applications/SayIt2.app
     echo "Installed release candidate $version ($(git rev-parse --short HEAD)). Try it, then: release.sh publish"

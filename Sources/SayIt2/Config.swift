@@ -74,7 +74,8 @@ struct Config {
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
         var lines = text.components(separatedBy: "\n")
         let line = value.isEmpty ? "\(key) =" : "\(key) = \(value)"
-        if let index = lines.firstIndex(where: { entries($0).first?.key == key }) {
+        // The last line for a key is the one `load` ends up using.
+        if let index = lines.lastIndex(where: { entries($0).first?.key == key }) {
             lines[index] = line
         } else {
             let provider = lines.firstIndex { entries($0).first?.key == "provider" }

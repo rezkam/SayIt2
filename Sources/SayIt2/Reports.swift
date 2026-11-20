@@ -6,7 +6,8 @@ import Sentry
 /// Off unless the build was given a DSN (`SAYIT2_SENTRY_DSN`, stored in Info.plist). Reports
 /// carry crashes, app hangs, and the short problem messages the pill shows. Never transcripts,
 /// audio, device names, settings, or personal data: those never reach these calls, IP addresses
-/// and other default personal data are off, and network activity is not recorded.
+/// and other default personal data are off, and network activity is not recorded. Nothing in a
+/// report identifies the installation or the Mac.
 enum Reports {
     static func start() {
         guard let dsn = Bundle.main.object(forInfoDictionaryKey: "SentryDSN") as? String, !dsn.isEmpty else { return }
@@ -19,7 +20,9 @@ enum Reports {
             options.enableNetworkTracking = false
             options.enableCaptureFailedRequests = false
             options.beforeSend = { event in
+                // Sentry adds an installation id, and a hash of this Mac's network hardware address.
                 event.user = nil
+                event.context?["app"]?["device_app_hash"] = nil
                 return event
             }
         }

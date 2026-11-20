@@ -4,6 +4,7 @@ import Foundation
 /// JSON text frames, PCM16 48 kHz mono audio as Base64 in `audio.append`.
 final class ChatGPTStream: Transcriber {
     private var ready = false
+    private var finishing = false
     private var utterances: [String] = []       // utterance ids in arrival order
     private var texts: [String: String] = [:]   // latest revision per utterance
 
@@ -46,6 +47,7 @@ final class ChatGPTStream: Transcriber {
     }
 
     override func finish() {
+        finishing = true
         send(json: ["type": "session.close"])
     }
 
@@ -60,7 +62,10 @@ final class ChatGPTStream: Transcriber {
             texts[id] = text
             onInterim?(utterances.compactMap { texts[$0]?.trimmingCharacters(in: .whitespaces) }.joined(separator: " "))
         case "session.updated":
-            if (message["session"] as? [String: Any])?["status"] as? String == "closed" { end(nil) }
+            // Closed before all audio was handed over means the server gave up, not that it is done.
+            if (message["session"] as? [String: Any])?["status"] as? String == "closed" {
+                end(finishing ? nil : Problem(message: "ChatGPT closed the session"))
+            }
         case "session.stop_requested":
             onStopRequested?()
         case "session.error":

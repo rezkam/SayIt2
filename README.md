@@ -47,9 +47,10 @@ the menu. Saved changes apply to the next dictation.
 Builds made with a Sentry DSN (`SAYIT2_SENTRY_DSN`, or looked up for the Sentry project `sayit2`
 with a signed-in `sentry` tool) send crash reports, app hangs, and the short
 problem messages the pill shows (such as "Can't reach ChatGPT") to Sentry. They never include
-what you said, audio, device names, settings, or IP addresses, and network activity is not
-recorded. Builds without a DSN send nothing. Each published release uploads its debug symbols
-to Sentry, so crash reports show function names.
+what you said, audio, device names, settings, or IP addresses, nothing in them identifies the
+installation or the Mac, and network activity is not recorded. Builds without a DSN send
+nothing. Each published release uploads its debug symbols to Sentry, so crash reports show
+function names.
 
 ## Limits
 

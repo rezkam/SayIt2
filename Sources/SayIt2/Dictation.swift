@@ -205,7 +205,7 @@ final class Dictation {
 
     private func lost(_ problem: Problem) {
         if problem.renewLogin, !renewedLogin {
-            // Renew the ChatGPT sign-in once, then connect again. Audio keeps being buffered meanwhile.
+            // Renew the ChatGPT sign-in, then connect again. Audio keeps being buffered meanwhile.
             renewedLogin = true
             catchingUp = true
             Task { [weak self] in
@@ -214,7 +214,10 @@ final class Dictation {
                     guard let self, !self.ended, self.stream == nil else { return }
                     self.connect()
                 } catch {
-                    self?.complete(problem: (error as? Problem)?.message ?? "Sign in to ChatGPT again")
+                    guard let self, !self.ended else { return }
+                    // Not renewed. If the server was only out of reach, the retry renews again.
+                    self.renewedLogin = false
+                    self.lost(error as? Problem ?? Problem(message: "Sign in to ChatGPT again", retryable: false))
                 }
             }
             return

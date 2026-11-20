@@ -75,7 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let dictation = try Dictation(config: config, handsFree: handsFree, typist: typist)
             indicator.setText("")
             dictation.onLevel = { [weak self] level in self?.indicator.level = level }
-            dictation.onText = { [weak self] text in self?.indicator.setText(text) }
+            // The pill shows the newest dictation; an earlier one still finishing must not overwrite it.
+            dictation.onText = { [weak self, weak dictation] text in
+                guard let self, dictation === self.dictations.last else { return }
+                self.indicator.setText(text)
+            }
             dictation.onStopped = { [weak self] in self?.refresh() }
             dictation.onEnd = { [weak self, weak dictation] problem in
                 self?.dictations.removeAll { $0 === dictation }

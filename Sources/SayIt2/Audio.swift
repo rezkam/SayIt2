@@ -107,12 +107,13 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var current: AVCaptureDevice? { (session.inputs.first as? AVCaptureDeviceInput)?.device }
 
     private func use(_ device: AVCaptureDevice) throws {
+        let unavailable = Problem(message: "Microphone unavailable", retryable: false)
+        // Open the new microphone first: if it cannot be opened, the one in use stays.
+        guard let input = try? AVCaptureDeviceInput(device: device) else { throw unavailable }
         session.beginConfiguration()
         defer { session.commitConfiguration() }
         session.inputs.forEach(session.removeInput)
-        guard let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else {
-            throw Problem(message: "Microphone unavailable", retryable: false)
-        }
+        guard session.canAddInput(input) else { throw unavailable }
         session.addInput(input)
     }
 

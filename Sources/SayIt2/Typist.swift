@@ -139,10 +139,11 @@ final class Typist {
     }
 
     /// If the target app quit, waits for it to be opened again and then inserts into whatever
-    /// field of it has focus.
+    /// field of it has focus. An app that is still launching would drop the key events.
     private func relocate(_ job: Job) {
         guard NSRunningApplication(processIdentifier: job.app) == nil, let bundle = job.bundle,
-              let relaunched = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first else { return }
+              let relaunched = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first,
+              relaunched.isFinishedLaunching else { return }
         job.app = relaunched.processIdentifier
         job.field = nil
     }
