@@ -19,8 +19,9 @@ enum Provider: String, CaseIterable {
     var sampleRate: Double { self == .chatgpt ? 48000 : 16000 }
     /// Bytes per audio message: 2,048 samples for ChatGPT, 100 ms for Deepgram.
     var frameBytes: Int { self == .chatgpt ? 4096 : 3200 }
-    /// ChatGPT sessions last 5 minutes, so recording finishes a little earlier.
-    var maxSeconds: TimeInterval { self == .chatgpt ? 285 : .infinity }
+    /// Most audio messages sent per 40 ms tick, which caps how fast a replay after a reconnect
+    /// runs. ChatGPT's recognizer gave up on a long replay at 8.5x real time and kept up at 3.2x.
+    var framesPerTick: Int { self == .chatgpt ? 3 : 8 }
 }
 
 /// All settings, read from the plain text file ~/.config/sayit2/config before every dictation.

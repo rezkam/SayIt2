@@ -78,7 +78,11 @@ it holds the Deepgram key.
 3. `transcript.segment` carries the whole utterance so far with a rising revision;
    `transcript.final` is the last revision. The newest revision per utterance wins.
 4. Stop: `session.close`; the final arrives about 0.5 to 1 s later.
-5. Sessions last 5 minutes, so recording finishes on its own at 4 min 45 s.
+5. No time limit. `session_ttl_ms: 300000` (copied from the desktop app) behaves as an
+   inactivity timeout: a session that kept receiving audio ran past it (see section 12).
+6. After a reconnect, buffered audio is replayed at about 3.2x real time. At 8.5x ChatGPT's
+   recognizer fell behind on a 140 s replay and failed (`transcript.failed`,
+   `BidiFlushTimeoutError`); at 2x, 3x and 3.2x it returned the complete text.
 
 **Deepgram Nova-3**
 1. WebSocket to `deepgram.url` (default `wss://api.deepgram.com/v1/listen`) with
@@ -98,7 +102,8 @@ installed build 26.1111.21308):
 - A press becomes a hold after 100 ms; recording starts then.
 - A release before 100 ms is a tap. A second press within 400 ms of a tap starts hands-free.
 - A press while hands-free stops. A release in hold mode stops.
-- Any other key while Right Option is held (an Option symbol) cancels silently and inserts nothing.
+- Any other key while Right Option is held (an Option symbol) cancels silently if nothing was
+  recognized yet; otherwise the dictation finishes and inserts its text.
 - No key is captured or consumed. Key events SayIt 2 posts are tagged and ignored by its listener.
 - In hold mode the physical key state is also polled, so a missed release cannot leave
   recording on.
@@ -113,12 +118,14 @@ installed build 26.1111.21308):
 - Before every key event, focus must be in the captured field: the same element, or the
   original element still reporting itself focused. Another app, window, or field pauses
   insertion. Apps that expose no field information are checked at the app level only.
-- Text not inserted within two minutes of its dictation ending is abandoned. A new dictation in
-  a different app abandons text still waiting for another app.
+- Text is never abandoned. It waits for its field however long that takes. Dictations into
+  the same app are inserted in order; text waiting for one app does not hold up another. If the
+  target app quits, the text is inserted into that app's focused field once it is opened again.
 - If a dictation ends with an error, the best text received so far is inserted anyway.
 - Needs Accessibility permission (also for the hotkey).
 
-Known limits: if you move the cursor before the final text arrives, it is inserted at the new
+Known limits: text still waiting when SayIt 2 itself quits is lost. If you move the cursor
+before the final text arrives, it is inserted at the new
 cursor position. An app that replaces its field object can look like a different field, which
 pauses insertion. Apps that read raw key codes instead of text (remote desktop, virtual
 machines, some games and Java apps) may not receive it.
@@ -205,7 +212,9 @@ All live checks used synthetic speech and one public-domain Persian clip, not a 
 | Deepgram word loss | A final sometimes has one to five fewer words than its live text, at stretch boundaries; not repeatable run to run | Observed |
 | Deepgram replay speed | About 1.3x real time with `language=multi` | Observed |
 | Both servers | Answer WebSocket pings while a receive is pending | Observed |
-| ChatGPT session limit | What the server does at 5 minutes | Unknown |
+| ChatGPT session length | 373 s of continuous audio (6.2 min) in one session returned its complete final 0.6 s after close, with 5 or 30 minutes requested. The server accepts any requested `session_ttl_ms` (tried up to 24 h) and sets expiry to last activity plus that value | Observed |
+| ChatGPT replay pace | 140 s replayed at 8.5x failed with no final; at 2x, 3x, 3.2x complete | Observed |
+| ChatGPT long sessions | The server stops saving its own copy of the audio (`asset.failed: capture_cap_hit`); text unaffected | Observed |
 
 ## 13. Manual checks still open
 

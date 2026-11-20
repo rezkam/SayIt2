@@ -8,20 +8,23 @@ let syntheticEventTag: Int64 = 0x5341_5932
 ///
 /// A job is created when recording starts, to remember the field, and receives its text once,
 /// at the end. Text is sent as Unicode key events, never through the clipboard. While focus is
-/// somewhere else, insertion waits for it to come back.
+/// somewhere else, insertion waits for it to come back, however long that takes: text is never
+/// thrown away. Dictations into the same app are inserted in order; a dictation waiting for one
+/// app does not hold up another app.
 @MainActor
 final class Typist {
     final class Job {
-        let app: pid_t
+        fileprivate var app: pid_t
+        fileprivate let bundle: String?
         /// The field that had focus when dictation started, if the app exposes one.
-        fileprivate let field: AXUIElement?
+        fileprivate var field: AXUIElement?
         /// The text to insert; nil until the dictation has finished.
         fileprivate var text: [Unicode.Scalar]?
         fileprivate var sent = 0
-        fileprivate var finishedAt = Date()
 
         fileprivate init(app: pid_t, field: AXUIElement?) {
             self.app = app
+            self.bundle = NSRunningApplication(processIdentifier: app)?.bundleIdentifier
             self.field = field
         }
     }
@@ -35,8 +38,6 @@ final class Typist {
     private var jobs: [Job] = []
     private var running = false
     private let source = CGEventSource(stateID: .privateState)
-    /// Text that could not be inserted within this long after its dictation ended is abandoned.
-    private let patience: TimeInterval = 120
 
     init() {
         source?.localEventsSuppressionInterval = 0
@@ -45,10 +46,8 @@ final class Typist {
     }
 
     /// Starts a job for the field that has keyboard focus right now.
-    /// Text still waiting for a different app is abandoned.
     func begin() -> Job? {
         guard let app = Self.focusedApp() else { return nil }
-        jobs.removeAll { $0.app != app }
         let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()))
         jobs.append(job)
         run()
@@ -61,7 +60,6 @@ final class Typist {
         job.text = text.precomposedStringWithCanonicalMapping.unicodeScalars.map {
             $0.properties.generalCategory == .control ? " " : $0
         }
-        job.finishedAt = Date()
     }
 
     static func focusedApp() -> pid_t? {
@@ -101,25 +99,17 @@ final class Typist {
         guard !running else { return }
         running = true
         Task {
-            while let job = jobs.first {
-                guard let text = job.text else {
-                    try? await Task.sleep(for: .milliseconds(15))   // still recording
-                    continue
-                }
-                if job.sent == text.count || NSRunningApplication(processIdentifier: job.app) == nil {
-                    jobs.removeFirst()   // done, or the target app quit
-                    continue
-                }
-                guard Self.isFocused(job) else {
-                    if Date().timeIntervalSince(job.finishedAt) > patience {
-                        jobs.removeFirst()   // the user never came back to this field
-                        continue
-                    }
-                    setWaiting(true)
-                    try? await Task.sleep(for: .milliseconds(150))
+            while !jobs.isEmpty {
+                guard let job = nextJob() else {
+                    setWaiting(jobs.contains { $0.text != nil })
+                    try? await Task.sleep(for: .milliseconds(jobs.contains { $0.text != nil } ? 150 : 15))
                     continue
                 }
                 setWaiting(false)
+                guard let text = job.text, job.sent < text.count else {
+                    jobs.removeAll { $0 === job }
+                    continue
+                }
                 let chunk = Self.chunk(text[job.sent...])
                 post(chunk.flatMap { Array(String($0).utf16) })
                 job.sent += chunk.count
@@ -129,6 +119,28 @@ final class Typist {
             isWaiting = false
             onChange?()
         }
+    }
+
+    /// The first job that can be inserted now: its text is ready, no earlier job for the same app
+    /// is still pending, and its field has focus.
+    private func nextJob() -> Job? {
+        var blocked: Set<pid_t> = []
+        for job in jobs {
+            relocate(job)
+            guard !blocked.contains(job.app) else { continue }
+            blocked.insert(job.app)
+            if job.text != nil, job.sent == job.text?.count || Self.isFocused(job) { return job }
+        }
+        return nil
+    }
+
+    /// If the target app quit, waits for it to be opened again and then inserts into whatever
+    /// field of it has focus.
+    private func relocate(_ job: Job) {
+        guard NSRunningApplication(processIdentifier: job.app) == nil, let bundle = job.bundle,
+              let relaunched = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first else { return }
+        job.app = relaunched.processIdentifier
+        job.field = nil
     }
 
     private func setWaiting(_ waiting: Bool) {

@@ -23,7 +23,6 @@ final class Dictation {
     private let typist: Typist
     private let job: Typist.Job
     private let mic = Mic()
-    private let started = Date()
     private var stream: Transcriber?
     private var timer: Timer?
 
@@ -85,9 +84,11 @@ final class Dictation {
         }
     }
 
-    /// Abandons the recording without inserting anything.
+    /// Abandons the recording without inserting anything, but only while no words have been
+    /// recognized. Once there are words it finishes normally, so speech is never thrown away.
     func cancel() {
         guard !ended else { return }
+        guard shown.isEmpty else { return stop() }
         close()
         typist.insert("", for: job)
         onEnd?(nil)
@@ -142,7 +143,7 @@ final class Dictation {
             let keyDown = CGEventSource.keyState(.combinedSessionState, key: Hotkey.keyCode)
             let keyReleased = !handsFree && sawKeyDown && !keyDown
             sawKeyDown = sawKeyDown || keyDown
-            if keyReleased || Date().timeIntervalSince(started) > provider.maxSeconds { stop() }
+            if keyReleased { stop() }
         }
         guard let stream else { return }
         // Dead connection: no sign of life for 5 s, not even the answer to a ping.
@@ -155,8 +156,8 @@ final class Dictation {
             return lost(Problem(message: "No response from \(provider.title)"))
         }
         guard stream.isReady else { return }
-        // At most 8 messages per tick, so a replay after a reconnect is paced, not dumped at once.
-        var budget = 8
+        // A limited number of messages per tick, so a replay after a reconnect is paced, not dumped at once.
+        var budget = provider.framesPerTick
         while budget > 0, sent < audio.count, audio.count - sent >= provider.frameBytes || !capturing {
             let count = min(provider.frameBytes, audio.count - sent)
             stream.send(audio: audio.subdata(in: sent..<sent + count))
