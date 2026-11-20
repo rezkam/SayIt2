@@ -60,7 +60,7 @@ final class Dictation {
             self.onLevel?(level)
         }
         mic.onInterrupted = { [weak self] in self?.stop() }
-        mic.onSwitched = { [weak self] name in self?.onNotice?("Microphone disconnected, using \(name)") }
+        mic.onNotice = { [weak self] notice in self?.onNotice?(notice) }
         do {
             let chosen = config.microphone.flatMap { name in Microphones.all.first { $0.localizedName == name } }
             if let name = config.microphone, chosen == nil {
@@ -148,6 +148,7 @@ final class Dictation {
 
     /// Runs every 40 ms: sends audio, notices a dead connection, and enforces the limits.
     private func tick() {
+        if capturing { mic.checkHealth() }
         if isRecording {
             // Safety net for a missed release event in hold mode. It only acts once it has
             // seen the key reported as down, so it can never end a recording by mistake.

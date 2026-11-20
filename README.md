@@ -8,7 +8,7 @@ No window, no sounds, no clipboard use.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
 - Pick **ChatGPT** or **Deepgram Nova-3**, and the microphone, in the menu bar menu. If the
   chosen microphone is not connected, or is unplugged while you dictate, the system default
-  is used.
+  is used. Background noise is suppressed and quiet speech is raised before it is sent.
 - If focus has left the text field when the text is ready (another app, window, or field),
   it waits and inserts the text when you return to that field.
 

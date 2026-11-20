@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
     private let updates = Updates()
+    private var menuIsOpen = false
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
     private var trusted = false
@@ -35,6 +36,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         typist.onChange = { [weak self] in self?.refresh() }
         indicator.onMessageEnd = { [weak self] in self?.refresh() }
         updates.onChange = { [weak self] in self?.refresh() }
+        // Keep the microphone list current, even while the menu is open.
+        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.menuIsOpen, let menu = self.statusItem.menu else { return }
+                    self.menuNeedsUpdate(menu)
+                }
+            }
+        }
         updates.start()
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
@@ -121,6 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: Menu
+
+    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
+    func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         refresh()
