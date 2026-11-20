@@ -42,7 +42,6 @@ Native Swift, AppKit only, no third-party dependencies.
 | `Resources/Fonts` | Vazirmatn (SIL Open Font License) and its license |
 | `scripts/build-app.sh` | Build, sign (Sparkle inside out, then the app), optionally notarize |
 | `scripts/release.sh` | Release candidate install, and publishing a DMG plus signed appcast to GitHub |
-| `AGENTS.md` | Mandates, the feature contract, and rejected approaches (`CLAUDE.md` links to it) |
 
 ## 3. Settings
 
