@@ -57,7 +57,11 @@ final class Dictation {
             self.audio.append(data)
             self.onLevel?(level)
         }
-        mic.onInterrupted = { [weak self] in self?.stop() }
+        mic.onInterrupted = { [weak self] in
+            guard let self, self.isRecording, !self.ended else { return }
+            self.onNotice?("Microphone lost")
+            self.stop()
+        }
         mic.onNotice = { [weak self] notice in self?.onNotice?(notice) }
         do {
             let chosen = config.microphone.flatMap { name in Microphones.all.first { $0.localizedName == name } }
@@ -75,9 +79,11 @@ final class Dictation {
     func start() {
         connect()
         guard !ended else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     /// The user finished speaking: close the microphone and wait for the remaining text.
@@ -114,6 +120,7 @@ final class Dictation {
         self.stream = stream
         sent = 0
         trimmed = 0
+        live = ""
         finishedAt = nil
 
         stream.onInterim = { [weak self, weak stream] text in

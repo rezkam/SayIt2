@@ -13,10 +13,15 @@ enum Reports {
         SentrySDK.start { options in
             options.dsn = dsn
             options.sendDefaultPii = false
+            options.enableAutoSessionTracking = false
             options.enableUncaughtNSExceptionReporting = true
             options.enableNetworkBreadcrumbs = false
             options.enableNetworkTracking = false
             options.enableCaptureFailedRequests = false
+            options.beforeSend = { event in
+                event.user = nil
+                return event
+            }
         }
     }
 

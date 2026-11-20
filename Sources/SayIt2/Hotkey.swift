@@ -35,7 +35,7 @@ final class Hotkey {
                 isDown = down
                 down ? pressed() : released()
             }
-        } else if isDown {
+        } else if event.type == .keyDown, isDown {
             otherKey()
         }
     }

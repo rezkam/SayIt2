@@ -121,7 +121,7 @@ private final class PillView: NSView {
     private let maxTextWidth: CGFloat = 420, maxLines = 4
     private let font = NSFont.systemFont(ofSize: 13, weight: .medium)
     /// Vazirmatn, bundled with the app, for Persian; the system font if it could not be loaded.
-    private let persianFont: NSFont = {
+    private lazy var persianFont: NSFont = {
         let descriptor = NSFontDescriptor(fontAttributes: [.family: "Vazirmatn", .traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.medium]])
         guard let vazirmatn = NSFont(descriptor: descriptor, size: 13), vazirmatn.familyName == "Vazirmatn" else {
             return NSFont.systemFont(ofSize: 13, weight: .medium)
@@ -150,12 +150,12 @@ private final class PillView: NSView {
     private func computeText() -> (text: NSAttributedString, size: NSSize)? {
         let raw = message ?? text
         guard !raw.isEmpty else { return nil }
+        let persian = raw.suffix(500).unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || (0xFB50...0xFDFF).contains($0.value) }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         paragraph.alignment = .natural
-        paragraph.baseWritingDirection = .natural   // Persian reads right to left
+        paragraph.baseWritingDirection = persian ? .rightToLeft : .natural   // keep mixed Persian and English right to left
         let fade = message == nil && (state == .finishing || state == .waiting)
-        let persian = raw.suffix(500).unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || (0xFB50...0xFDFF).contains($0.value) }
         let font = persian ? persianFont : self.font
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font, .paragraphStyle: paragraph,
