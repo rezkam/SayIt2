@@ -1,5 +1,4 @@
 import AVFoundation
-import AudioToolbox
 
 /// The microphones macOS offers for recording.
 enum Microphones {
@@ -10,13 +9,14 @@ enum Microphones {
     static var systemDefault: AVCaptureDevice? { AVCaptureDevice.default(for: .audio) }
 }
 
-/// Microphone capture, delivered as mono PCM16 at the provider's rate, with noise suppression and
-/// gain control, and a health watch that keeps the recording going when the device misbehaves.
+/// Microphone capture, delivered as mono PCM16 at the provider's rate, with a health watch that
+/// keeps the recording going when the device misbehaves.
 ///
 /// This follows how the ChatGPT and Claude apps record through their browser engine: input-only
 /// capture (AVCaptureSession here; AVAudioEngine also drives the output side and recorded nothing
-/// from Bluetooth headphones), then processing, a fallback to the system default, and a watch on
-/// whether the microphone is live, silent, or lost.
+/// from Bluetooth headphones), a fallback to the system default, and a watch on whether the
+/// microphone is live, silent, or lost. Audio is sent as captured: Apple's voice isolation made
+/// the recognizers invent text from background noise.
 final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// PCM bytes plus a 0...1 voice level, on the main queue.
     var onAudio: ((Data, Float) -> Void)?
@@ -27,7 +27,6 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     private let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "sayit2.microphone")
-    private var cleaner: VoiceCleaner?
     private var observers: [NSObjectProtocol] = []
     // Health, on the main queue.
     private var started = Date()
@@ -43,12 +42,11 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         guard let device = device ?? Microphones.systemDefault else { throw Problem(message: "No microphone", retryable: false) }
         try use(device)
-        cleaner = VoiceCleaner(sampleRate: sampleRate)
         let output = AVCaptureAudioDataOutput()
-        // macOS converts to the provider's rate itself.
+        // macOS delivers exactly the wire format: the provider's rate, mono, 16-bit.
         output.audioSettings = [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
             AVLinearPCMIsNonInterleaved: false,
         ]
         output.setSampleBufferDelegate(self, queue: queue)
@@ -123,85 +121,26 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
-        var raw = [Float](repeating: 0, count: CMBlockBufferGetDataLength(block) / MemoryLayout<Float>.size)
-        guard !raw.isEmpty, raw.withUnsafeMutableBytes({ bytes in
+        var pcm = Data(count: CMBlockBufferGetDataLength(block))
+        guard !pcm.isEmpty, pcm.withUnsafeMutableBytes({ bytes in
             CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: bytes.baseAddress!)
         }) == kCMBlockBufferNoErr else { return }
-        let silent = raw.allSatisfy { $0 == 0 }
-        let samples = cleaner?.process(raw) ?? raw
         var energy: Float = 0
-        var pcm = Data(count: samples.count * 2)
-        pcm.withUnsafeMutableBytes { bytes in
-            let out = bytes.bindMemory(to: Int16.self)
-            for (index, sample) in samples.enumerated() {
-                energy += sample * sample
-                out[index] = Int16((max(-1, min(1, sample)) * 32767).rounded())
+        var silent = true
+        pcm.withUnsafeBytes { bytes in
+            for sample in bytes.bindMemory(to: Int16.self) {
+                if sample != 0 { silent = false }
+                let value = Float(sample) / 32768
+                energy += value * value
             }
         }
-        let decibels = 10 * log10(max(energy / Float(max(samples.count, 1)), 1e-10))
+        let decibels = 10 * log10(max(energy / Float(pcm.count / 2), 1e-10))
         let level = min(max((decibels + 55) / 40, 0), 1)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastAudio = Date()
             self.silentSince = silent ? (self.silentSince ?? Date()) : nil
-            if !pcm.isEmpty { self.onAudio?(pcm, level) }
+            self.onAudio?(pcm, level)
         }
-    }
-}
-
-/// Noise suppression with Apple's voice isolation effect, then gain control, applied to captured
-/// audio as it arrives. Background noise drops by about 45 dB while speech stays intact (measured);
-/// the effect delays audio by about 60 ms. Returns nil if the effect is unavailable, in which case
-/// raw audio is used.
-final class VoiceCleaner {
-    private let engine = AVAudioEngine()
-    private let output: AVAudioPCMBuffer
-    private var pending: [Float] = []
-    private var cursor = 0
-    private var gain: Float = 1
-
-    init?(sampleRate: Double) {
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-              let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096) else { return nil }
-        self.output = output
-        let isolation = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
-            componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_AUSoundIsolation,
-            componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0))
-        let source = AVAudioSourceNode(format: format) { [unowned self] _, _, frames, list in
-            let out = UnsafeMutableAudioBufferListPointer(list)[0].mData!.assumingMemoryBound(to: Float.self)
-            for index in 0..<Int(frames) {
-                out[index] = self.cursor < self.pending.count ? self.pending[self.cursor] : 0
-                self.cursor += 1
-            }
-            return noErr
-        }
-        engine.attach(source)
-        engine.attach(isolation)
-        engine.connect(source, to: isolation, format: format)
-        engine.connect(isolation, to: engine.mainMixerNode, format: format)
-        do {
-            // Offline rendering: no audio device is involved, the engine only runs the effect.
-            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
-            try engine.start()
-        } catch {
-            log.notice("noise suppression unavailable")
-            return nil
-        }
-    }
-
-    func process(_ samples: [Float]) -> [Float] {
-        pending = samples
-        cursor = 0
-        var result: [Float] = []
-        while result.count < samples.count {
-            let frames = AVAudioFrameCount(min(4096, samples.count - result.count))
-            guard (try? engine.renderOffline(frames, to: output)) == .success else { return samples }
-            result += UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength))
-        }
-        // Gain control: move slowly toward a steady speech level (about -20 dBFS), between half
-        // and eight times, only while there is speech, so silence is not pumped up.
-        let level = sqrt(result.reduce(0) { $0 + $1 * $1 } / Float(max(result.count, 1)))
-        if level > 0.003 { gain += (min(max(0.1 / level, 0.5), 8) - gain) * 0.05 }
-        return result.map { max(-1, min(1, $0 * gain)) }
     }
 }

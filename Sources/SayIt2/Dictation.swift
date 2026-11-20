@@ -35,7 +35,7 @@ final class Dictation {
     private var trimmed = 0         // bytes removed from `audio` during the current connection
     private var finals: [String] = []
     private var live = ""
-    private var failures = 0        // connection failures in a row
+    private var failures = 0        // connection failures in this dictation; never reset, so retries always end
     private var renewedLogin = false
     private var catchingUp = false  // a replay is running; its transcript is still behind what was shown
     private var shown = ""           // the best text so far
@@ -119,13 +119,11 @@ final class Dictation {
 
         stream.onInterim = { [weak self, weak stream] text in
             guard let self, self.stream === stream else { return }
-            self.failures = 0
             self.live = text
             self.render()
         }
         stream.onFinal = { [weak self, weak stream] text, covered in
             guard let self, self.stream === stream else { return }
-            self.failures = 0
             // Keep the part of the interim text this final did not reach, until the next
             // interim replaces it. Otherwise those words would blink out of the pill.
             self.live = self.live.hasPrefix(text) ? String(self.live.dropFirst(text.count)).trimmingCharacters(in: .whitespaces) : ""
@@ -215,7 +213,9 @@ final class Dictation {
         }
         failures += 1
         log.notice("connection lost: \(problem.message, privacy: .public), failure \(self.failures)")
-        guard problem.retryable, failures <= 2 else { return complete(problem: problem.message) }
+        // At most three reconnects per dictation. A replay can produce live text and still fail
+        // again, so progress must not reset this count, or a failing dictation never ends.
+        guard problem.retryable, failures <= 3 else { return complete(problem: problem.message) }
         catchingUp = true
         DispatchQueue.main.asyncAfter(deadline: .now() + (failures == 1 ? 0.3 : 1)) { [weak self] in
             guard let self, !self.ended, self.stream == nil else { return }

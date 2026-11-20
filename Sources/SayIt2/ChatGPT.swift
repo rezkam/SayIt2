@@ -66,6 +66,8 @@ final class ChatGPTStream: Transcriber {
         case "session.error":
             if message["fatal"] as? Bool == true { end(Problem(message: "ChatGPT error")) }
         case "transcript.failed":
+            let code = (message["error"] as? [String: Any])?["code"] as? String ?? "unknown"
+            log.notice("ChatGPT transcript failed: \(code, privacy: .public)")
             end(Problem(message: "ChatGPT could not transcribe"))
         default:
             break

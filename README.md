@@ -8,7 +8,7 @@ No window, no sounds, no clipboard use.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
 - Pick **ChatGPT** or **Deepgram Nova-3**, and the microphone, in the menu bar menu. If the
   chosen microphone is not connected, or is unplugged while you dictate, the system default
-  is used. Background noise is suppressed and quiet speech is raised before it is sent.
+  is used.
 - If focus has left the text field when the text is ready (another app, window, or field),
   it waits and inserts the text when you return to that field.
 
@@ -50,5 +50,8 @@ the menu. Saved changes apply to the next dictation.
   final text is used as is.
 - If you move the cursor before the text arrives, it is inserted at the new position.
 - Text still waiting for its field is lost if SayIt2 itself quits.
+- Dictating with Bluetooth headphones' microphone switches them to call mode, which lowers
+  playback quality until the dictation ends (true of every app). Choose the built-in microphone
+  to keep music quality.
 - Apps that read raw key codes instead of text (remote desktop, virtual machines, some games)
   may not receive the text.
