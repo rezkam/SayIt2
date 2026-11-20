@@ -111,7 +111,7 @@ The file is created with owner-only permissions because it holds the Deepgram ke
 1. Open the server from the config (default `wss://api.deepgram.com/v1/listen`) with
    `Authorization: Token`. Query parameters come from the config. The defaults are
    `model=nova-3`, `language=multi`, `language_hint=en`, `language_hint=fa`,
-   `interim_results=true`, `endpointing=300`, with no `smart_format` or `punctuate`.
+   `interim_results=true`, `endpointing=300`, with `smart_format=true` (punctuation, capitals, numbers).
    `model` is always sent, because without it Deepgram falls back to its old `base` model.
    Flux models are not supported: they use `/v2/listen`, a different protocol, and have no Persian.
 2. Text: finals (`is_final: true`) are appended and never change. The newest interim

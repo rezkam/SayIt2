@@ -124,10 +124,10 @@ struct Config {
     # Milliseconds of silence that end a phrase. Deepgram's default is 10.
     deepgram.endpointing = 300
 
-    # Formatting. All are off unless enabled, which gives plain lowercase text.
+    # Formatting. Without any of these, Deepgram returns plain lowercase text.
     # Punctuation, capitals, and formatted numbers and dates. Includes punctuate,
     # so do not enable both:
-    # deepgram.smart_format = true
+    deepgram.smart_format = true
     # Punctuation and capitals only:
     # deepgram.punctuate = true
     # Numbers as digits:
