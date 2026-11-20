@@ -212,7 +212,7 @@ All live checks used synthetic speech and one public-domain Persian clip, not a 
 | Deepgram word loss | A final sometimes has one to five fewer words than its live text, at stretch boundaries; not repeatable run to run | Observed |
 | Deepgram replay speed | About 1.3x real time with `language=multi` | Observed |
 | Both servers | Answer WebSocket pings while a receive is pending | Observed |
-| ChatGPT session length | 373 s of continuous audio (6.2 min) in one session returned its complete final 0.6 s after close, with 5 or 30 minutes requested. The server accepts any requested `session_ttl_ms` (tried up to 24 h) and sets expiry to last activity plus that value | Observed |
+| ChatGPT session length | 373 s (6.2 min, 5 or 30 minutes requested) and 746 s (12.4 min, 5 minutes requested) of continuous audio in one session each returned the complete final 0.6 s after close. The server accepts any requested `session_ttl_ms` (tried up to 24 h) and sets expiry to last activity plus that value | Observed |
 | ChatGPT replay pace | 140 s replayed at 8.5x failed with no final; at 2x, 3x, 3.2x complete | Observed |
 | ChatGPT long sessions | The server stops saving its own copy of the audio (`asset.failed: capture_cap_hit`); text unaffected | Observed |
 
