@@ -9,9 +9,7 @@ import AppKit
 @MainActor
 final class Dictation {
     let handsFree: Bool
-    /// Set when the chosen microphone was not connected and the system default is used instead.
-    private(set) var notice: String?
-    /// A message for the pill while recording, such as a microphone change.
+    /// A problem worth showing in the pill while recording, such as a silent microphone.
     var onNotice: ((String) -> Void)?
     private(set) var isRecording = true
     var onLevel: ((Float) -> Void)?
@@ -63,9 +61,9 @@ final class Dictation {
         mic.onNotice = { [weak self] notice in self?.onNotice?(notice) }
         do {
             let chosen = config.microphone.flatMap { name in Microphones.all.first { $0.localizedName == name } }
-            if let name = config.microphone, chosen == nil {
-                notice = "Using \(Microphones.systemDefault?.localizedName ?? "the default microphone"): \(name) not connected"
-            }
+            // A chosen microphone that is not connected is replaced by the system default without
+            // interrupting: the menu already shows it as not connected.
+            if config.microphone != nil, chosen == nil { log.notice("chosen microphone not connected, using the system default") }
             try mic.start(sampleRate: config.provider.sampleRate, device: chosen)
         } catch {
             typist.insert("", for: job)

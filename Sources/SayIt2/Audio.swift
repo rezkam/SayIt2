@@ -20,7 +20,7 @@ enum Microphones {
 final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// PCM bytes plus a 0...1 voice level, on the main queue.
     var onAudio: ((Data, Float) -> Void)?
-    /// Something the user should know, such as a device change, on the main queue.
+    /// A problem the user should know about, such as a muted microphone, on the main queue.
     var onNotice: ((String) -> Void)?
     /// The microphone stopped working and nothing could replace it, on the main queue.
     var onInterrupted: (() -> Void)?
@@ -63,6 +63,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             },
         ]
         started = Date()
+        log.notice("recording from the \(Self.kind(of: device), privacy: .public) microphone")
         queue.async { [session] in session.startRunning() }   // can take a moment; keep the main thread free
     }
 
@@ -83,6 +84,16 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             warnedSilent = true
             log.notice("microphone silent")
             onNotice?("Microphone is muted or silent")
+        }
+    }
+
+    /// The kind of device, for the log (device names are left out of it).
+    private static func kind(of device: AVCaptureDevice) -> String {
+        switch device.transportType {
+        case Int32(bitPattern: kAudioDeviceTransportTypeBuiltIn): "built-in"
+        case Int32(bitPattern: kAudioDeviceTransportTypeBluetooth), Int32(bitPattern: kAudioDeviceTransportTypeBluetoothLE): "Bluetooth"
+        case Int32(bitPattern: kAudioDeviceTransportTypeUSB): "USB"
+        default: "other"
         }
     }
 
@@ -109,7 +120,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         let fallback = Microphones.systemDefault
         if let fallback, fallback != current, (try? use(fallback)) != nil {
-            onNotice?("\(reason), using \(fallback.localizedName)")
+            log.notice("switched to the system default: \(Self.kind(of: fallback), privacy: .public)")
         }
         started = Date()
         lastAudio = nil

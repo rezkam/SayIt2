@@ -85,7 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictations.append(dictation)
             dictation.start()
             log.notice("recording started: \(config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
-            if let notice = dictation.notice { indicator.flash(notice) }
             dictation.onNotice = { [weak self] notice in self?.indicator.flash(notice) }
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
