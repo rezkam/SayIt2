@@ -41,4 +41,13 @@ the menu. Saved changes apply to the next dictation.
   live streaming API as a parameter (model, language, formatting, key terms and so on); the
   file lists them all with a short explanation.
 
-See `PLAN.md` for the design, the verified facts behind it, and known limits.
+## Limits
+
+- The ChatGPT option uses ChatGPT's internal dictation service with the desktop app's sign-in.
+  It is undocumented and can stop working with any ChatGPT update. Deepgram is the stable option.
+- Deepgram's final text sometimes leaves out a word or a few that its live text showed; the
+  final text is used as is.
+- If you move the cursor before the text arrives, it is inserted at the new position.
+- Text still waiting for its field is lost if SayIt2 itself quits.
+- Apps that read raw key codes instead of text (remote desktop, virtual machines, some games)
+  may not receive the text.
