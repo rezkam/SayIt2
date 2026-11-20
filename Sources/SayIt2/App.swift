@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictations.append(dictation)
             dictation.start()
             log.notice("recording started: \(config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
+            if let notice = dictation.notice { indicator.flash(notice) }
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
             log.notice("could not start: \(message, privacy: .public)")
@@ -132,11 +133,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "SayIt2  \(version) (build \(build))", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: attention ?? "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
-        let current = Config.load().provider
+        let config = Config.load()
         for provider in Provider.allCases {
             let item = menu.addItem(withTitle: provider.title, action: #selector(chooseProvider(_:)), keyEquivalent: "")
             item.representedObject = provider.rawValue
-            item.state = provider == current ? .on : .off
+            item.state = provider == config.provider ? .on : .off
+        }
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: "Microphone"))
+        let systemDefault = menu.addItem(withTitle: "System Default", action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
+        systemDefault.representedObject = ""
+        systemDefault.state = config.microphone == nil ? .on : .off
+        if let name = Microphone.systemDefault()?.name {
+            if #available(macOS 14.4, *) { systemDefault.subtitle = "Now: \(name)" } else { systemDefault.title = "System Default (\(name))" }
+        }
+        let microphones = Microphone.all().map(\.name)
+        for name in microphones {
+            let item = menu.addItem(withTitle: name, action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
+            item.representedObject = name
+            item.state = name == config.microphone ? .on : .off
+        }
+        if let chosen = config.microphone, !microphones.contains(chosen) {
+            menu.addItem(withTitle: "\(chosen) (not connected)", action: nil, keyEquivalent: "").state = .on
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
@@ -158,8 +176,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func chooseProvider(_ item: NSMenuItem) {
         guard let name = item.representedObject as? String, let provider = Provider(rawValue: name) else { return }
-        if !Config.setProvider(provider) { indicator.flash("Config file could not be read") }
+        if !Config.set("provider", to: provider.rawValue) { indicator.flash("Config file could not be read") }
         refresh()
+    }
+
+    @objc private func chooseMicrophone(_ item: NSMenuItem) {
+        guard let name = item.representedObject as? String else { return }
+        if !Config.set("microphone", to: name) { indicator.flash("Config file could not be read") }
     }
 
     /// Opens the settings file in the default text editor.

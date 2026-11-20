@@ -14,6 +14,10 @@ a command, capture, or source read), **Inferred**, **Unknown**.
 - **When you stop:** the provider's final text is inserted once into the text field that had
   focus when dictation started, followed by a space. If focus is elsewhere, insertion waits
   for that field to have focus again.
+- **Microphone:** chosen in the menu, listed under a "Microphone" heading: System Default
+  (follows macOS, showing which device that is now) or any connected input device. A chosen
+  device that is not connected is shown as "(not connected)"; dictation then records with the
+  system default and the pill says so for 3 seconds.
 - **Providers:** ChatGPT (the sign-in shared with the ChatGPT app and codex) or Deepgram Nova-3
   (API key), chosen in the menu. English and Persian are detected automatically.
 - **Text:** inserted exactly as the provider returns it. ChatGPT punctuates. Deepgram punctuates
@@ -50,8 +54,9 @@ read at the start of every dictation, so saved changes apply without a restart. 
 on first use with every option listed and explained, and with owner-only permissions because
 it holds the Deepgram key.
 
-- `provider = chatgpt` or `deepgram`. The menu's provider choice rewrites only this line, and
-  writes nothing if the file cannot be read.
+- `provider = chatgpt` or `deepgram`, and `microphone = <device name>` (empty for the system
+  default). The menu rewrites only the line it changes, and writes nothing if the file cannot
+  be read.
 - `deepgram.api_key`, `deepgram.url` (regional servers listed).
 - Every other `deepgram.*` line is passed to Deepgram as a query parameter. `encoding`,
   `sample_rate` and `channels` are fixed by the app because they describe the audio it sends.
@@ -59,7 +64,8 @@ it holds the Deepgram key.
 
 ## 4. Audio
 
-- `AVAudioEngine` input tap on the default microphone, started once a press is confirmed as a
+- `AVAudioEngine` input tap on the chosen microphone (set on the input unit with
+  `kAudioOutputUnitProperty_CurrentDevice`; devices listed through Core Audio), started once a press is confirmed as a
   hold (100 ms) or a double-tap.
 - One `AVAudioConverter` step from the hardware format to the wire format:
   - ChatGPT: PCM16, 48,000 Hz, mono; Base64 inside `audio.append`, 4,096 bytes per message.

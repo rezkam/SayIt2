@@ -1,4 +1,48 @@
 import AVFoundation
+import CoreAudio
+
+/// An input device as macOS lists it.
+struct Microphone {
+    let id: AudioDeviceID
+    let name: String
+
+    /// Every device that can record, in the order macOS lists them.
+    static func all() -> [Microphone] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids.compactMap { id in
+            var streams = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
+                                                     mScope: kAudioObjectPropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+            var count: UInt32 = 0
+            guard AudioObjectGetPropertyDataSize(id, &streams, 0, nil, &count) == noErr, count > 0 else { return nil }
+            return name(of: id).map { Microphone(id: id, name: $0) }
+        }
+    }
+
+    /// The device macOS records from by default.
+    static func systemDefault() -> Microphone? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
+              id != 0 else { return nil }
+        return name(of: id).map { Microphone(id: id, name: $0) }
+    }
+
+    private static func name(of id: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr else { return nil }
+        return name?.takeRetainedValue() as String?
+    }
+}
 
 /// Microphone capture with exactly one conversion: hardware format to mono PCM16 at the provider's rate.
 final class Mic {
@@ -10,11 +54,17 @@ final class Mic {
     private let engine = AVAudioEngine()
     private var observer: NSObjectProtocol?
 
-    func start(sampleRate: Double) throws {
+    /// Records from `device`, or from the system default when it is nil.
+    func start(sampleRate: Double, device: AudioDeviceID?) throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw Problem(message: "Allow microphone access", retryable: false)
         }
         let input = engine.inputNode
+        if var device, let unit = input.audioUnit {
+            let size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            guard AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, size) == noErr
+            else { throw Problem(message: "Microphone unavailable", retryable: false) }
+        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
               let wire = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: 1, interleaved: true),

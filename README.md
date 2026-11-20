@@ -6,7 +6,8 @@ No window, no sounds, no clipboard use.
 
 - **Hold** Right Option to dictate, release to finish.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
-- Pick **ChatGPT** or **Deepgram Nova-3** in the menu bar menu.
+- Pick **ChatGPT** or **Deepgram Nova-3**, and the microphone, in the menu bar menu. If the
+  chosen microphone is not connected, the system default is used.
 - If focus has left the text field when the text is ready (another app, window, or field),
   it waits and inserts the text when you return to that field.
 

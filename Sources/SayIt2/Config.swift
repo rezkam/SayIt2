@@ -27,6 +27,8 @@ enum Provider: String, CaseIterable {
 /// All settings, read from the plain text file ~/.config/sayit2/config before every dictation.
 struct Config {
     var provider = Provider.chatgpt
+    /// The chosen microphone's name; nil for the system default.
+    var microphone: String?
     var deepgramKey: String?
     var deepgramURL = "wss://api.deepgram.com/v1/listen"
     /// Every `deepgram.<name> = <value>` line, sent to Deepgram as a query parameter.
@@ -46,6 +48,8 @@ struct Config {
         for (key, value) in entries((try? String(contentsOf: file, encoding: .utf8)) ?? "") {
             if key == "provider" {
                 config.provider = Provider(rawValue: value) ?? config.provider
+            } else if key == "microphone" {
+                config.microphone = value.isEmpty ? nil : value
             } else if key == "deepgram.api_key" {
                 config.deepgramKey = value.isEmpty ? nil : value
             } else if key == "deepgram.url" {
@@ -62,17 +66,19 @@ struct Config {
         return config
     }
 
-    /// Changes only the `provider` line, leaving the rest of the file as the user wrote it.
-    /// Returns false, changing nothing, if the file cannot be read: writing then would erase it.
-    static func setProvider(_ provider: Provider) -> Bool {
+    /// Changes only the line for `key` (adding it after the provider line if it is missing),
+    /// leaving the rest of the file as the user wrote it. Returns false, changing nothing, if the
+    /// file cannot be read: writing then would erase it.
+    static func set(_ key: String, to value: String) -> Bool {
         _ = load()
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
         var lines = text.components(separatedBy: "\n")
-        let line = "provider = \(provider.rawValue)"
-        if let index = lines.firstIndex(where: { entries($0).first?.key == "provider" }) {
+        let line = value.isEmpty ? "\(key) =" : "\(key) = \(value)"
+        if let index = lines.firstIndex(where: { entries($0).first?.key == key }) {
             lines[index] = line
         } else {
-            lines.insert(line, at: 0)
+            let provider = lines.firstIndex { entries($0).first?.key == "provider" }
+            lines.insert(line, at: provider.map { $0 + 1 } ?? 0)
         }
         // Not atomic on purpose: that would replace the file and lose its private permissions.
         return (try? lines.joined(separator: "\n").write(to: file, atomically: false, encoding: .utf8)) != nil
@@ -92,6 +98,10 @@ struct Config {
 
     # Which service transcribes: chatgpt or deepgram. The menu bar menu changes this line.
     provider = chatgpt
+
+    # Which microphone records: its name as listed in the menu, or empty for the system default.
+    # The menu bar menu changes this line. When it is not connected, the system default is used.
+    microphone =
 
     # ---------- ChatGPT ----------
     # Uses the sign-in of the ChatGPT desktop app on this Mac. Nothing to set.
