@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SayIt 2: pill with live words</title>
 <style>
+@font-face { font-family: Vazirmatn; src: url('../Resources/Fonts/Vazirmatn.ttf') format('truetype'); font-weight: 100 900; }
 :root {
   --paper: #f3f1ec; --ink: #1b1a17; --muted: #6b675f; --rule: #d9d5cb; --chip: #e7e3da;
   --select: #1b1a17; --select-ink: #f3f1ec;
@@ -75,6 +76,8 @@ body[data-state="free"] .stop { display: inline-block; }
 .words { color: #fff; font-size: 13px; font-weight: 500; line-height: 18px; }
 body:is([data-state="finish"],[data-state="wait"]) .words { opacity: .6; }
 .words:empty { display: none; }
+.words[dir="rtl"] { font-family: Vazirmatn, system-ui, sans-serif; }
+.win[dir="rtl"] { font-family: Vazirmatn, system-ui, sans-serif; }
 .clamp { display: block; }
 
 /* A: growing pill */
