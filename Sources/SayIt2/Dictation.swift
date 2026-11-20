@@ -11,6 +11,8 @@ final class Dictation {
     let handsFree: Bool
     /// Set when the chosen microphone was not connected and the system default is used instead.
     private(set) var notice: String?
+    /// A message for the pill while recording, such as a microphone change.
+    var onNotice: ((String) -> Void)?
     private(set) var isRecording = true
     var onLevel: ((Float) -> Void)?
     /// The newest live text, for the pill.
@@ -58,12 +60,13 @@ final class Dictation {
             self.onLevel?(level)
         }
         mic.onInterrupted = { [weak self] in self?.stop() }
+        mic.onSwitched = { [weak self] name in self?.onNotice?("Microphone disconnected, using \(name)") }
         do {
-            let chosen = config.microphone.flatMap { name in Microphone.all().first { $0.name == name } }
+            let chosen = config.microphone.flatMap { name in Microphones.all.first { $0.localizedName == name } }
             if let name = config.microphone, chosen == nil {
-                notice = "Using \(Microphone.systemDefault()?.name ?? "the default microphone"): \(name) not connected"
+                notice = "Using \(Microphones.systemDefault?.localizedName ?? "the default microphone"): \(name) not connected"
             }
-            try mic.start(sampleRate: config.provider.sampleRate, device: chosen?.id)
+            try mic.start(sampleRate: config.provider.sampleRate, device: chosen)
         } catch {
             typist.insert("", for: job)
             throw error

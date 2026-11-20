@@ -1,145 +1,102 @@
 import AVFoundation
-import CoreAudio
 
-/// An input device as macOS lists it.
-struct Microphone {
-    let id: AudioDeviceID
-    let name: String
-
-    /// Every device that can record, in the order macOS lists them.
-    static func all() -> [Microphone] {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
-        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
-        return ids.compactMap { id in
-            var streams = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
-                                                     mScope: kAudioObjectPropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
-            var count: UInt32 = 0
-            guard AudioObjectGetPropertyDataSize(id, &streams, 0, nil, &count) == noErr, count > 0 else { return nil }
-            return name(of: id).map { Microphone(id: id, name: $0) }
-        }
+/// The microphones macOS offers for recording.
+enum Microphones {
+    static var all: [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
     }
 
-    /// The device macOS records from by default.
-    static func systemDefault() -> Microphone? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var id = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
-              id != 0 else { return nil }
-        return name(of: id).map { Microphone(id: id, name: $0) }
-    }
-
-    private static func name(of id: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var name: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &name) == noErr else { return nil }
-        return name?.takeRetainedValue() as String?
-    }
+    static var systemDefault: AVCaptureDevice? { AVCaptureDevice.default(for: .audio) }
 }
 
-/// Microphone capture with exactly one conversion: hardware format to mono PCM16 at the provider's rate.
-final class Mic {
+/// Microphone capture, delivered as mono PCM16 at the provider's rate.
+///
+/// Input only, through AVCaptureSession, like the browser engines the ChatGPT and Claude apps
+/// record with. (AVAudioEngine also drives the output side: with Bluetooth headphones as both
+/// speaker and microphone, it kept flipping the headset between modes and recorded nothing.)
+/// macOS converts to the wire format itself, so there is no separate conversion step.
+final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// PCM bytes plus a 0...1 voice level, delivered on the main queue.
     var onAudio: ((Data, Float) -> Void)?
-    /// The microphone stopped working and could not be restarted. The recording cannot continue.
+    /// The recording device went away and capture moved to this one. On the main queue.
+    var onSwitched: ((String) -> Void)?
+    /// The microphone stopped working and no other was available. On the main queue.
     var onInterrupted: (() -> Void)?
 
-    private let engine = AVAudioEngine()
-    private var observer: NSObjectProtocol?
-    private var sampleRate: Double = 0
-    private var device: AudioDeviceID?
-    private var restarts = 0
+    private let session = AVCaptureSession()
+    private let queue = DispatchQueue(label: "sayit2.microphone")
+    private var observers: [NSObjectProtocol] = []
 
     /// Records from `device`, or from the system default when it is nil.
-    func start(sampleRate: Double, device: AudioDeviceID?) throws {
+    func start(sampleRate: Double, device: AVCaptureDevice?) throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw Problem(message: "Allow microphone access", retryable: false)
         }
-        self.sampleRate = sampleRate
-        self.device = device
-        // macOS reports a configuration change when the device's format changes, for example
-        // when Bluetooth headphones switch to their headset mode as recording starts. That is
-        // not the end of the recording: capture restarts with the new format and carries on.
-        observer = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in self?.restart() }
-        do {
-            try capture()
-        } catch {
-            stop()
-            throw error
-        }
+        guard let device = device ?? Microphones.systemDefault else { throw Problem(message: "No microphone", retryable: false) }
+        try use(device)
+        let output = AVCaptureAudioDataOutput()
+        output.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
+        output.setSampleBufferDelegate(self, queue: queue)
+        guard session.canAddOutput(output) else { throw Problem(message: "Microphone unavailable", retryable: false) }
+        session.addOutput(output)
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .AVCaptureDeviceWasDisconnected, object: nil, queue: .main) { [weak self] note in
+                self?.disconnected(note.object as? AVCaptureDevice)
+            },
+            center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: .main) { [weak self] _ in
+                self?.onInterrupted?()
+            },
+        ]
+        queue.async { [session] in session.startRunning() }   // can take a moment; keep the main thread free
     }
 
     func stop() {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        observer = nil
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        queue.async { [session] in session.stopRunning() }
     }
 
-    private func restart() {
-        guard observer != nil else { return }
-        restarts += 1
-        log.notice("microphone configuration changed, restart \(self.restarts)")
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        do {
-            guard restarts <= 3 else { throw Problem(message: "Microphone keeps changing") }
-            try capture()
-        } catch {
-            log.notice("microphone could not be restarted")
-            onInterrupted?()
-        }
-    }
-
-    /// Points the engine at the device, converts its current format, and starts it.
-    private func capture() throws {
-        let input = engine.inputNode
-        if var device, let unit = input.audioUnit {
-            let size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            guard AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, size) == noErr
-            else { throw Problem(message: "Microphone unavailable", retryable: false) }
-        }
-        let sampleRate = sampleRate
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0,
-              let wire = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: 1, interleaved: true),
-              let converter = AVAudioConverter(from: format, to: wire)
-        else { throw Problem(message: "No microphone", retryable: false) }
-
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * sampleRate / format.sampleRate) + 32
-            guard let output = AVAudioPCMBuffer(pcmFormat: wire, frameCapacity: capacity) else { return }
-            var consumed = false
-            converter.convert(to: output, error: nil) { _, status in
-                status.pointee = consumed ? .noDataNow : .haveData
-                defer { consumed = true }
-                return consumed ? nil : buffer
-            }
-            let count = Int(output.frameLength)
-            guard count > 0, let samples = output.int16ChannelData?[0] else { return }
-            var energy: Float = 0
-            for index in 0..<count {
-                let sample = Float(samples[index]) / 32768
-                energy += sample * sample
-            }
-            let decibels = 10 * log10(max(energy / Float(count), 1e-10))
-            let level = min(max((decibels + 55) / 40, 0), 1)
-            let data = Data(bytes: samples, count: count * 2)
-            DispatchQueue.main.async { self?.onAudio?(data, level) }
-        }
-        engine.prepare()
-        do { try engine.start() } catch {
-            input.removeTap(onBus: 0)
+    private func use(_ device: AVCaptureDevice) throws {
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        session.inputs.forEach(session.removeInput)
+        guard let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) else {
             throw Problem(message: "Microphone unavailable", retryable: false)
         }
+        session.addInput(input)
+    }
+
+    /// The device in use was unplugged: carry on with the system default instead of ending.
+    private func disconnected(_ device: AVCaptureDevice?) {
+        guard let current = (session.inputs.first as? AVCaptureDeviceInput)?.device, device == current else { return }
+        guard let fallback = Microphones.systemDefault, fallback != current, (try? use(fallback)) != nil else {
+            onInterrupted?()
+            return
+        }
+        log.notice("microphone disconnected, switched to the system default")
+        onSwitched?(fallback.localizedName)
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        var data = Data(count: CMBlockBufferGetDataLength(block))
+        let copied = data.withUnsafeMutableBytes { bytes in
+            CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: bytes.baseAddress!)
+        }
+        guard copied == kCMBlockBufferNoErr, !data.isEmpty else { return }
+        let energy = data.withUnsafeBytes { bytes in
+            bytes.bindMemory(to: Int16.self).reduce(Float(0)) { sum, sample in
+                let value = Float(sample) / 32768
+                return sum + value * value
+            }
+        }
+        let decibels = 10 * log10(max(energy / Float(data.count / 2), 1e-10))
+        let level = min(max((decibels + 55) / 40, 0), 1)
+        DispatchQueue.main.async { [weak self] in self?.onAudio?(data, level) }
     }
 }

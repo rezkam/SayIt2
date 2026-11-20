@@ -76,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictation.start()
             log.notice("recording started: \(config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
             if let notice = dictation.notice { indicator.flash(notice) }
+            dictation.onNotice = { [weak self] notice in self?.indicator.flash(notice) }
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
             log.notice("could not start: \(message, privacy: .public)")
@@ -144,10 +145,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let systemDefault = menu.addItem(withTitle: "System Default", action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
         systemDefault.representedObject = ""
         systemDefault.state = config.microphone == nil ? .on : .off
-        if let name = Microphone.systemDefault()?.name {
+        if let name = Microphones.systemDefault?.localizedName {
             if #available(macOS 14.4, *) { systemDefault.subtitle = "Now: \(name)" } else { systemDefault.title = "System Default (\(name))" }
         }
-        let microphones = Microphone.all().map(\.name)
+        let microphones = Microphones.all.map(\.localizedName)
         for name in microphones {
             let item = menu.addItem(withTitle: name, action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
             item.representedObject = name
