@@ -180,14 +180,11 @@ Only the newest transcript matters, so updates can never be applied out of order
 - Needs Accessibility permission (for both the hotkey and typing). If it is missing, the menu
   bar icon shows a warning and the menu offers to open the settings pane.
 
-Caret check: before every key press the caret must sit right after SayIt 2's own text. If you
-moved it, clicked elsewhere in the field, or typed, nothing typed so far is deleted any more
-(no further corrections to it) and new text continues at the caret. While text is selected,
-typing waits. An app that reports the caret wrongly three times gets append-only typing.
-Fields that do not report a caret (some terminals) are not checked.
-
-Known limits: an app whose autocorrect changes the length of typed text looks like a moved caret,
-which stops corrections for that dictation. Apps that ignore synthetic Unicode events will not
+Known limits: if you move the cursor or type inside the target field while dictating, a later
+correction can backspace the wrong characters. A check of the cursor position was tried in 0.3.0
+and removed in 0.3.3: apps report the position in ways that made it misfire during normal
+dictation, which garbled text. An app that replaces its field object while you type can look
+like a different field, which pauses typing. Apps that ignore synthetic Unicode events will not
 receive text.
 
 ## 8. Credentials
