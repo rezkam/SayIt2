@@ -33,7 +33,7 @@ struct Config {
     var deepgramParameters: [URLQueryItem] = []
 
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
-    /// These describe the audio SayIt 2 sends, so the file cannot change them.
+    /// These describe the audio SayIt2 sends, so the file cannot change them.
     private static let fixed = ["encoding": "linear16", "sample_rate": "16000", "channels": "1"]
 
     /// Reads the file, creating it with every option listed if it does not exist yet.
@@ -87,7 +87,7 @@ struct Config {
     }
 
     private static let template = """
-    # SayIt 2 settings. Saved changes apply to the next dictation.
+    # SayIt2 settings. Saved changes apply to the next dictation.
     # Lines starting with # are ignored.
 
     # Which service transcribes: chatgpt or deepgram. The menu bar menu changes this line.
@@ -162,7 +162,7 @@ struct Config {
     # deepgram.extra = key:value
     # deepgram.version = latest
 
-    # Set by SayIt 2 to match the audio it sends, and ignored here:
+    # Set by SayIt2 to match the audio it sends, and ignored here:
     # encoding = linear16, sample_rate = 16000, channels = 1.
     # Not useful for typing dictation: callback, callback_method, multichannel,
     # diarize_model (speaker labels), keywords (models older than Nova-3).

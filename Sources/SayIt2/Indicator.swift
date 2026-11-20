@@ -1,6 +1,6 @@
 import AppKit
 
-/// The black pill just above the Dock while SayIt 2 is listening: voice bars and the live words.
+/// The black pill just above the Dock while SayIt2 is listening: voice bars and the live words.
 @MainActor
 final class Indicator {
     enum State: Equatable { case hidden, listening, handsFree, finishing, waiting }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds and signs "build/SayIt 2.app". With --notarize, also has Apple notarize it.
+# Builds and signs "build/SayIt2.app". With --notarize, also has Apple notarize it.
 #
 #   bash scripts/build-app.sh               build and sign
 #   bash scripts/build-app.sh --notarize    build, sign, notarize, and staple the ticket
@@ -19,7 +19,7 @@ build="$(git rev-list --count HEAD)"
 xcrun swift build -c release
 binary="$(xcrun swift build -c release --show-bin-path)/SayIt2"
 
-app="build/SayIt 2.app"
+app="build/SayIt2.app"
 mkdir -p "$app/Contents/MacOS"
 cp -f "$binary" "$app/Contents/MacOS/SayIt2"
 mkdir -p "$app/Contents/Resources"
@@ -29,8 +29,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>SayIt 2</string>
-    <key>CFBundleDisplayName</key><string>SayIt 2</string>
+    <key>CFBundleName</key><string>SayIt2</string>
+    <key>CFBundleDisplayName</key><string>SayIt2</string>
     <key>CFBundleIdentifier</key><string>${SAYIT2_BUNDLE_ID:-local.sayit2}</string>
     <key>CFBundleExecutable</key><string>SayIt2</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -38,7 +38,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$build</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>SayIt 2 listens while you hold or double-tap Right Option, to type what you say.</string>
+    <key>NSMicrophoneUsageDescription</key><string>SayIt2 listens while you hold or double-tap Right Option, to type what you say.</string>
 </dict>
 </plist>
 PLIST

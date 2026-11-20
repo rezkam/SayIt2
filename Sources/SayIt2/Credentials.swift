@@ -1,7 +1,7 @@
 import Foundation
 
 /// The ChatGPT sign-in shared with the ChatGPT desktop app and the codex command line tool,
-/// stored in ~/.codex/auth.json. SayIt 2 renews it itself when it has expired, and saves the
+/// stored in ~/.codex/auth.json. SayIt2 renews it itself when it has expired, and saves the
 /// renewed tokens back to the same file so those apps keep working with them.
 enum Credentials {
     private static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")

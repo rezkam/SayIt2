@@ -1,4 +1,4 @@
-# SayIt 2: design
+# SayIt2: design
 
 How the app works today, and the verified facts behind it. Labels: **Observed** (confirmed by
 a command, capture, or source read), **Inferred**, **Unknown**.
@@ -104,7 +104,7 @@ installed build 26.1111.21308):
 - A press while hands-free stops. A release in hold mode stops.
 - Any other key while Right Option is held (an Option symbol) cancels silently if nothing was
   recognized yet; otherwise the dictation finishes and inserts its text.
-- No key is captured or consumed. Key events SayIt 2 posts are tagged and ignored by its listener.
+- No key is captured or consumed. Key events SayIt2 posts are tagged and ignored by its listener.
 - In hold mode the physical key state is also polled, so a missed release cannot leave
   recording on.
 - macOS delivers no key events while a password field has secure input, so dictation cannot
@@ -124,7 +124,7 @@ installed build 26.1111.21308):
 - If a dictation ends with an error, the best text received so far is inserted anyway.
 - Needs Accessibility permission (also for the hotkey).
 
-Known limits: text still waiting when SayIt 2 itself quits is lost. If you move the cursor
+Known limits: text still waiting when SayIt2 itself quits is lost. If you move the cursor
 before the final text arrives, it is inserted at the new
 cursor position. An app that replaces its field object can look like a different field, which
 pauses insertion. Apps that read raw key codes instead of text (remote desktop, virtual
@@ -134,13 +134,13 @@ machines, some games and Java apps) may not receive it.
 
 - Deepgram: `deepgram.api_key` in the config file.
 - ChatGPT: `~/.codex/auth.json`, shared with the ChatGPT app and codex. When the server rejects
-  the token (401), SayIt 2 renews it once with the refresh token, under the same lock file codex
+  the token (401), SayIt2 renews it once with the refresh token, under the same lock file codex
   uses (`auth.json.lock`), skips renewing if another app already did, and replaces the file in
   one step with owner-only permissions. A refused renewal shows "Sign in to ChatGPT again".
   The server has ended a token five days before its own expiry date (Observed), which is why
-  SayIt 2 renews rather than relying on the ChatGPT app.
+  SayIt2 renews rather than relying on the ChatGPT app.
 - Unknown: whether a running ChatGPT app re-reads the file before its own next renewal. If it
-  does not, it may ask to sign in again after SayIt 2 renewed.
+  does not, it may ask to sign in again after SayIt2 renewed.
 
 ## 9. Reliability
 
@@ -164,7 +164,7 @@ Callbacks from an older connection or recording are ignored.
 Private-endpoint risk: the ChatGPT stream is an internal, undocumented interface used with the
 desktop app's client headers. It can change with any ChatGPT update and is outside the
 published API terms. Each ChatGPT stream ends with an `asset.ready` event, so the server may
-keep the session audio (Inferred). SayIt 2 stores no audio and no transcripts.
+keep the session audio (Inferred). SayIt2 stores no audio and no transcripts.
 
 ## 10. Indicator and menu bar
 
@@ -186,7 +186,7 @@ missing. The menu's first line shows the version and build.
 
 ## 11. Build, sign, version
 
-- `bash scripts/build-app.sh` builds `build/SayIt 2.app` and signs it with the Developer ID
+- `bash scripts/build-app.sh` builds `build/SayIt2.app` and signs it with the Developer ID
   certificate (hardened runtime, secure timestamp, microphone entitlement).
 - `--notarize` also submits it to Apple's notary service and staples the ticket. Notarizing
   needs the Mac unlocked, because the notary credential is not readable at the lock screen.

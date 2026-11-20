@@ -1,4 +1,4 @@
-# SayIt 2
+# SayIt2
 
 A minimal macOS menu bar dictation app. Hold Right Option and speak: your words appear in a
 small pill above the Dock, and when you stop, the text is inserted into the app you were in.
@@ -15,7 +15,7 @@ No window, no sounds, no clipboard use.
 ```sh
 bash scripts/build-app.sh              # build and sign
 bash scripts/build-app.sh --notarize   # also notarize with Apple
-open "build/SayIt 2.app"
+open "build/SayIt2.app"
 ```
 
 Requires Xcode. On first launch, grant Accessibility (for the hotkey and inserting text) and
@@ -27,7 +27,7 @@ Everything is in one text file, `~/.config/sayit2/config`. Open it with **Edit C
 the menu. Saved changes apply to the next dictation.
 
 - **ChatGPT** uses the sign-in shared by the ChatGPT desktop app and codex on this Mac
-  (`~/.codex/auth.json`), so there is nothing to set. SayIt 2 renews it when it expires and
+  (`~/.codex/auth.json`), so there is nothing to set. SayIt2 renews it when it expires and
   saves it back there. This is a private interface and may stop working. Text is inserted exactly
   as ChatGPT returns it.
 - **Deepgram** needs `deepgram.api_key`. Every other `deepgram.*` line is passed to Deepgram's

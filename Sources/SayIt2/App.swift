@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?", build = info?["CFBundleVersion"] as? String ?? "?"
-        menu.addItem(withTitle: "SayIt 2  \(version) (build \(build))", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "SayIt2  \(version) (build \(build))", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: attention ?? "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         let current = Config.load().provider
@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(withTitle: "Allow Microphone Access…", action: #selector(openMicrophone), keyEquivalent: "")
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit SayIt 2", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit SayIt2", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         for item in menu.items where item.action != #selector(NSApplication.terminate(_:)) { item.target = self }
     }
 

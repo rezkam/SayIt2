@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-/// Marks key events SayIt 2 posts, so its own hotkey listener can ignore them.
+/// Marks key events SayIt2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
 
 /// Inserts each dictation's final text into the text field that had focus when it started.
