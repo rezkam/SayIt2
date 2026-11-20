@@ -10,7 +10,7 @@
 #   SAYIT2_SIGNING_IDENTITY  Developer ID Application certificate; falls back to
 #                            SPEAKFLOW_SIGNING_IDENTITY, then the first code signing identity.
 #   SAYIT2_NOTARY_PROFILE    notarytool keychain profile; falls back to SPEAKFLOW_NOTARY_PROFILE.
-#   SAYIT2_BUNDLE_ID         bundle identifier; default local.sayit2.
+#   SAYIT2_BUNDLE_ID         bundle identifier; default nu.rez.sayit2.
 #   SAYIT2_REPO              GitHub owner/name for the update feed; default: the origin remote.
 # The update signing key lives in the login Keychain under the Sparkle account "sayit2".
 set -euo pipefail
@@ -52,7 +52,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleName</key><string>SayIt2</string>
     <key>CFBundleDisplayName</key><string>SayIt2</string>
-    <key>CFBundleIdentifier</key><string>${SAYIT2_BUNDLE_ID:-local.sayit2}</string>
+    <key>CFBundleIdentifier</key><string>${SAYIT2_BUNDLE_ID:-nu.rez.sayit2}</string>
     <key>CFBundleExecutable</key><string>SayIt2</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$version</string>
