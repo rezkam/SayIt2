@@ -110,9 +110,9 @@ final class Indicator {
 
 /// Draws the pill: five voice bars, the live words (or a problem message), and a square while hands-free.
 private final class PillView: NSView {
-    var state: Indicator.State = .hidden
-    var text = ""
-    var message: String?
+    var state: Indicator.State = .hidden { didSet { if state != oldValue { invalidateText() } } }
+    var text = "" { didSet { if text != oldValue { invalidateText() } } }
+    var message: String? { didSet { if message != oldValue { invalidateText() } } }
     var energy: CGFloat = 0
     var time: CFTimeInterval = 0
 
@@ -128,10 +128,26 @@ private final class PillView: NSView {
         }
         return vazirmatn
     }()
+    private let layoutManager = NSLayoutManager()
+    private var layoutDirty = true
+    private var cachedText: (text: NSAttributedString, size: NSSize)?
     private var barsWidth: CGFloat { 5 * barWidth + 4 * barGap }
 
+    private func invalidateText() {
+        layoutDirty = true
+        cachedText = nil
+    }
+
+    private func currentText() -> (text: NSAttributedString, size: NSSize)? {
+        if layoutDirty {
+            layoutDirty = false
+            cachedText = computeText()
+        }
+        return cachedText
+    }
+
     /// The words to draw, wrapped to at most `maxLines` lines, keeping the newest words.
-    private var shownText: NSAttributedString? {
+    private func computeText() -> (text: NSAttributedString, size: NSSize)? {
         let raw = message ?? text
         guard !raw.isEmpty else { return nil }
         let paragraph = NSMutableParagraphStyle()
@@ -139,20 +155,45 @@ private final class PillView: NSView {
         paragraph.alignment = .natural
         paragraph.baseWritingDirection = .natural   // Persian reads right to left
         let fade = message == nil && (state == .finishing || state == .waiting)
-        let persian = raw.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || (0xFB50...0xFDFF).contains($0.value) }
+        let persian = raw.suffix(500).unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || (0xFB50...0xFDFF).contains($0.value) }
         let font = persian ? persianFont : self.font
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font, .paragraphStyle: paragraph,
             .foregroundColor: NSColor.white.withAlphaComponent(fade ? 0.6 : 1),
         ]
-        let limit = CGFloat(maxLines) * NSLayoutManager().defaultLineHeight(for: font) + 1   // the font chosen above
-        var words = raw.split(separator: " ", omittingEmptySubsequences: true)
-        var candidate = NSAttributedString(string: raw, attributes: attributes)
-        while words.count > 1, height(of: candidate) > limit {
-            words.removeFirst()
-            candidate = NSAttributedString(string: "… " + words.joined(separator: " "), attributes: attributes)
+        let limit = CGFloat(maxLines) * layoutManager.defaultLineHeight(for: font) + 1   // the font chosen above
+        func measure(_ string: String) -> (text: NSAttributedString, size: NSSize) {
+            let attributed = NSAttributedString(string: string, attributes: attributes)
+            return (attributed, size(of: attributed))
         }
-        return candidate
+        let words = raw.split(separator: " ", omittingEmptySubsequences: true)
+        guard words.count > 1 else { return measure(raw) }
+        var step = 16
+        var lastFit: (text: NSAttributedString, size: NSSize)?
+        while step < words.count {
+            let candidate = measure("… " + words.suffix(step).joined(separator: " "))
+            guard candidate.size.height <= limit else { break }
+            lastFit = candidate
+            step *= 2
+        }
+        if step >= words.count - 1 {
+            let full = measure(raw)
+            if full.size.height <= limit { return full }
+        }
+        var low = step > 16 ? step / 2 + 1 : 1
+        var high = min(step, words.count) - 1
+        var best = lastFit
+        while low <= high {
+            let mid = (low + high) / 2
+            let candidate = measure("… " + words.suffix(mid).joined(separator: " "))
+            if candidate.size.height <= limit {
+                best = candidate
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return best ?? measure("… " + words.suffix(1).joined(separator: " "))
     }
 
     private func size(of text: NSAttributedString) -> NSSize {
@@ -161,14 +202,11 @@ private final class PillView: NSView {
         return NSSize(width: ceil(rect.width), height: ceil(rect.height))
     }
 
-    private func height(of text: NSAttributedString) -> CGFloat { size(of: text).height }
-
     private var showsSquare: Bool { message == nil && state == .handsFree }
 
     override var fittingSize: NSSize {
         var width = padding * 2 + barsWidth, height = lineHeight
-        if let text = shownText {
-            let textSize = size(of: text)
+        if let (_, textSize) = currentText() {
             width += gap + textSize.width
             height = max(lineHeight, textSize.height + vertical * 2)
         }
@@ -207,8 +245,7 @@ private final class PillView: NSView {
         }
 
         var x = padding + barsWidth + gap
-        if let text = shownText {
-            let textSize = size(of: text)
+        if let (text, textSize) = currentText() {
             text.draw(with: NSRect(x: x, y: (bounds.height - textSize.height) / 2, width: textSize.width, height: textSize.height),
                       options: [.usesLineFragmentOrigin, .usesFontLeading])
             x += textSize.width + gap

@@ -49,6 +49,8 @@ the menu. Saved changes apply to the next dictation.
 - Deepgram's final text sometimes leaves out a word or a few that its live text showed; the
   final text is used as is.
 - If you move the cursor before the text arrives, it is inserted at the new position.
+- If the original text field no longer exists when the text arrives, it is inserted into whatever
+  field of that app has focus.
 - Text still waiting for its field is lost if SayIt2 itself quits.
 - Dictating with Bluetooth headphones' microphone switches them to call mode, which lowers
   playback quality until the dictation ends (true of every app). Choose the built-in microphone

@@ -74,6 +74,7 @@ final class Dictation {
     /// Opens the connection. Call after the callbacks are set.
     func start() {
         connect()
+        guard !ended else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -155,10 +156,12 @@ final class Dictation {
         }
         guard let stream else { return }
         // Dead connection: no sign of life for 5 s, not even the answer to a ping.
+        // Handshake stall: the socket is open, yet the provider did not become ready within 10 s.
         // Stuck transcription: all audio was handed over and the server then said nothing for 10 s.
         let now = Date()
+        let notReady = !stream.isReady && now.timeIntervalSince(stream.startedAt) > 10
         let stuck = finishedAt.map { now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
-        if now.timeIntervalSince(stream.lastActivity) > 5 || stuck {
+        if now.timeIntervalSince(stream.lastActivity) > 5 || notReady || stuck {
             stream.cancel()
             self.stream = nil
             return lost(Problem(message: "No response from \(provider.title)"))
@@ -215,7 +218,8 @@ final class Dictation {
         // again, so progress must not reset this count, or a failing dictation never ends.
         guard problem.retryable, failures <= 3 else { return complete(problem: problem.message) }
         catchingUp = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + (failures == 1 ? 0.3 : 1)) { [weak self] in
+        let delay: TimeInterval = [0.5, 2, 5][failures - 1]
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !self.ended, self.stream == nil else { return }
             self.connect()
         }

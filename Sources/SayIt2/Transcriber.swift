@@ -12,6 +12,8 @@ class Transcriber {
     /// The connection is over: nil after a clean finish, otherwise what went wrong.
     var onEnd: ((Problem?) -> Void)?
 
+    /// When this connection started, to time out if the provider never becomes ready.
+    let startedAt = Date()
     /// When the server last showed it is alive: a message, or the answer to a ping.
     /// Pings are used because how often a provider sends transcripts depends on its settings.
     private(set) var lastActivity = Date()

@@ -5,7 +5,7 @@ let package = Package(
     name: "SayIt2",
     platforms: [.macOS(.v14)],
     dependencies: [
-        // Updates: the one third-party dependency, chosen deliberately.
+        // Updates.
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [

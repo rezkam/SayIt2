@@ -80,7 +80,11 @@ final class Typist {
         var value: CFTypeRef?
         let answer = AXUIElementCopyAttributeValue(field, kAXFocusedAttribute as CFString, &value)
         if answer == .success, let focused = value as? Bool { return focused }
-        if answer == .invalidUIElement { return false }   // the original field no longer exists
+        if answer == .invalidUIElement {
+            // The original field no longer exists; fall back to the app, like after a relaunch.
+            job.field = nil
+            return true
+        }
         // The app cannot say. A different window is certainly a different field.
         if let original = element(kAXWindowAttribute, of: field), let now = element(kAXWindowAttribute, of: current) {
             return CFEqual(original, now)
