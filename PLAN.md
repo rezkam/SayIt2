@@ -40,7 +40,7 @@ Native Swift, AppKit only, no third-party dependencies.
 | `Indicator.swift` | The pill |
 | `Resources/Fonts` | Vazirmatn (SIL Open Font License) and its license |
 | `scripts/build-app.sh` | Build, sign, and optionally notarize the app bundle |
-| `docs/` | The mockups the indicator was chosen from |
+| `docs/pill-mockups.html` | The mockups the pill design was chosen from |
 
 ## 3. Settings
 
