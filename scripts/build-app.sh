@@ -12,6 +12,7 @@
 #   SAYIT2_NOTARY_PROFILE    notarytool keychain profile; falls back to SPEAKFLOW_NOTARY_PROFILE.
 #   SAYIT2_BUNDLE_ID         bundle identifier; default nu.rez.sayit2.
 #   SAYIT2_REPO              GitHub owner/name for the update feed; default: the origin remote.
+#   SAYIT2_SENTRY_DSN        Sentry DSN for crash and error reports; without it reports are off.
 # The update signing key lives in the login Keychain under the Sparkle account "sayit2".
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -59,7 +60,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$build</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>SayIt2 listens while you hold or double-tap Right Option, to type what you say.</string>$update_keys
+    <key>NSMicrophoneUsageDescription</key><string>SayIt2 listens while you hold or double-tap Right Option, to type what you say.</string>
+    <key>SentryDSN</key><string>${SAYIT2_SENTRY_DSN:-}</string>$update_keys
 </dict>
 </plist>
 PLIST

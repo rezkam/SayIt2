@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var recording: Dictation? { dictations.last { $0.isRecording } }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Reports.start()
         // Vazirmatn (SIL Open Font License) draws Persian words in the pill.
         if let font = Bundle.main.url(forResource: "Vazirmatn", withExtension: "ttf") {
             CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
@@ -79,7 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictation.onEnd = { [weak self, weak dictation] problem in
                 self?.dictations.removeAll { $0 === dictation }
                 log.notice("recording ended: \(problem ?? "ok", privacy: .public)")
-                if let problem { self?.indicator.flash(problem) }
+                if let problem {
+                    self?.indicator.flash(problem)
+                    Reports.problem(problem, provider: config.provider)
+                }
                 self?.refresh()
             }
             dictation.onNotice = { [weak self] notice in self?.indicator.flash(notice) }
