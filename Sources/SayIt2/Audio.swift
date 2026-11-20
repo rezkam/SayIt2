@@ -48,23 +48,67 @@ struct Microphone {
 final class Mic {
     /// PCM bytes plus a 0...1 voice level, delivered on the main queue.
     var onAudio: ((Data, Float) -> Void)?
-    /// The input device changed or disappeared. The recording cannot continue.
+    /// The microphone stopped working and could not be restarted. The recording cannot continue.
     var onInterrupted: (() -> Void)?
 
     private let engine = AVAudioEngine()
     private var observer: NSObjectProtocol?
+    private var sampleRate: Double = 0
+    private var device: AudioDeviceID?
+    private var restarts = 0
 
     /// Records from `device`, or from the system default when it is nil.
     func start(sampleRate: Double, device: AudioDeviceID?) throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw Problem(message: "Allow microphone access", retryable: false)
         }
+        self.sampleRate = sampleRate
+        self.device = device
+        // macOS reports a configuration change when the device's format changes, for example
+        // when Bluetooth headphones switch to their headset mode as recording starts. That is
+        // not the end of the recording: capture restarts with the new format and carries on.
+        observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in self?.restart() }
+        do {
+            try capture()
+        } catch {
+            stop()
+            throw error
+        }
+    }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+    }
+
+    private func restart() {
+        guard observer != nil else { return }
+        restarts += 1
+        log.notice("microphone configuration changed, restart \(self.restarts)")
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        do {
+            guard restarts <= 3 else { throw Problem(message: "Microphone keeps changing") }
+            try capture()
+        } catch {
+            log.notice("microphone could not be restarted")
+            onInterrupted?()
+        }
+    }
+
+    /// Points the engine at the device, converts its current format, and starts it.
+    private func capture() throws {
         let input = engine.inputNode
         if var device, let unit = input.audioUnit {
             let size = UInt32(MemoryLayout<AudioDeviceID>.size)
             guard AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, size) == noErr
             else { throw Problem(message: "Microphone unavailable", retryable: false) }
         }
+        let sampleRate = sampleRate
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
               let wire = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: 1, interleaved: true),
@@ -92,21 +136,10 @@ final class Mic {
             let data = Data(bytes: samples, count: count * 2)
             DispatchQueue.main.async { self?.onAudio?(data, level) }
         }
-        observer = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in self?.onInterrupted?() }
-
         engine.prepare()
         do { try engine.start() } catch {
-            stop()
+            input.removeTap(onBus: 0)
             throw Problem(message: "Microphone unavailable", retryable: false)
         }
-    }
-
-    func stop() {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        observer = nil
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
     }
 }

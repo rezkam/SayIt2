@@ -40,6 +40,7 @@ final class Dictation {
     private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
     private var finishedAt: Date?   // when the provider was told there is no more audio
     private var sawKeyDown = false
+    private var captured = 0        // audio bytes recorded, for the log
     private var ended = false
 
     init(config: Config, handsFree: Bool, typist: Typist) throws {
@@ -52,6 +53,7 @@ final class Dictation {
 
         mic.onAudio = { [weak self] data, level in
             guard let self, self.capturing else { return }
+            self.captured += data.count
             self.audio.append(data)
             self.onLevel?(level)
         }
@@ -222,6 +224,8 @@ final class Dictation {
         close()
         // After a failure, insert the best text received so far rather than losing the speech.
         let text = problem != nil && catchingUp ? shown : currentText
+        let seconds = Double(captured) / 2 / provider.sampleRate
+        log.notice("dictation finished: \(String(format: "%.1f", seconds), privacy: .public) s of audio, \(text.count, privacy: .public) characters")
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
         onEnd?(problem)
     }
