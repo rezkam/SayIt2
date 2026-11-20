@@ -41,6 +41,7 @@ Native Swift, AppKit only, no third-party dependencies.
 | `Resources/Fonts` | Vazirmatn (SIL Open Font License) and its license |
 | `scripts/build-app.sh` | Build, sign, and optionally notarize the app bundle |
 | `docs/pill-mockups.html` | The mockups the pill design was chosen from |
+| `AGENTS.md` | Mandates, the feature contract, and rejected approaches (`CLAUDE.md` links to it) |
 
 ## 3. Settings
 
