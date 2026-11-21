@@ -60,7 +60,7 @@ cp -f "$binary" "$app/Contents/MacOS/SayIt2"
 # Debug symbols for readable crash reports; release.sh uploads them to Sentry.
 rm -rf build/SayIt2.dSYM
 ditto "$binary.dSYM" build/SayIt2.dSYM
-cp -f Resources/Fonts/Vazirmatn.ttf Resources/Fonts/Vazirmatn-OFL.txt "$app/Contents/Resources/"
+cp -f Resources/AppIcon.icns Resources/Fonts/Vazirmatn.ttf Resources/Fonts/Vazirmatn-OFL.txt "$app/Contents/Resources/"
 ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -71,6 +71,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>SayIt2</string>
     <key>CFBundleIdentifier</key><string>${SAYIT2_BUNDLE_ID:-nu.rez.sayit2}</string>
     <key>CFBundleExecutable</key><string>SayIt2</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$version</string>
     <key>CFBundleVersion</key><string>$build</string>
