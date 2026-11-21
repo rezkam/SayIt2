@@ -20,17 +20,17 @@ fail() { echo "error: $*" >&2; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || fail "commit your changes first"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "VERSION must look like 1.2.3"
 
-if [[ "$mode" == publish ]]; then
-    git fetch --quiet origin main
-    [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "push this commit to origin/main first"
-    ! gh release view "v$version" >/dev/null 2>&1 || fail "v$version is already released; bump VERSION"
-fi
-
-bash scripts/build-app.sh --notarize
-app="build/SayIt2.app"
-[[ "$(codesign -dv "$app" 2>&1)" == *"(runtime)"* ]] || fail "app is not signed for release"
+rc="build/rc"
+app="$rc/SayIt2.app"
+dsym="$rc/SayIt2.dSYM"
 
 if [[ "$mode" == rc ]]; then
+    bash scripts/build-app.sh --notarize
+    [[ "$(codesign -dv "build/SayIt2.app" 2>&1)" == *"(runtime)"* ]] || fail "app is not signed for release"
+    rm -rf "$rc" && mkdir -p "$rc"
+    ditto build/SayIt2.app "$app"
+    ditto build/SayIt2.dSYM "$dsym"
+    git rev-parse HEAD > "$rc/commit"
     pkill -x SayIt2 || true
     # Replace, not merge: a file left over from an earlier build would break the signature.
     rm -rf /Applications/SayIt2.app
@@ -39,6 +39,18 @@ if [[ "$mode" == rc ]]; then
     echo "Installed release candidate $version ($(git rev-parse --short HEAD)). Try it, then: release.sh publish"
     exit 0
 fi
+
+git fetch --quiet origin main
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "push this commit to origin/main first"
+! gh release view "v$version" >/dev/null 2>&1 || fail "v$version is already released; bump VERSION"
+[[ -d "$app" && -d "$dsym" && -f "$rc/commit" ]] || fail "run release.sh rc for this commit first"
+[[ "$(cat "$rc/commit")" == "$(git rev-parse HEAD)" ]] || fail "release candidate is for a different commit; run release.sh rc"
+plist="$app/Contents/Info.plist"
+[[ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || true)" == "$version" ]] || fail "release candidate version does not match VERSION; run release.sh rc"
+[[ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$plist" 2>/dev/null || true)" == "$(git rev-list --count HEAD)" ]] || fail "release candidate build number does not match HEAD; run release.sh rc"
+[[ "$(codesign -dv "$app" 2>&1)" == *"(runtime)"* ]] || fail "app is not signed for release"
+codesign --verify --deep --strict "$app"
+spctl --assess --type execute --verbose "$app"
 
 # Disk image with the app and a link to /Applications, signed and notarized.
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -59,7 +71,7 @@ spctl --assess --type open --context context:primary-signature --verbose "$dmg"
 dsn="$(/usr/libexec/PlistBuddy -c "Print :SentryDSN" "$app/Contents/Info.plist" 2>/dev/null || true)"
 if [[ -n "$dsn" ]]; then
     command -v sentry >/dev/null || fail "install and sign in to the sentry tool to upload debug symbols"
-    SENTRY_DSN="$dsn" sentry debug-files upload build/SayIt2.dSYM --type dsym
+    SENTRY_DSN="$dsn" sentry debug-files upload "$dsym" --type dsym
 fi
 
 # Update feed: one item for this release, with the DMG's signature, then the feed itself signed.

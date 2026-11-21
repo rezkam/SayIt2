@@ -6,6 +6,7 @@ import Foundation
 @MainActor
 enum Credentials {
     private static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/auth.json")
+    private static let lockFile = file.deletingLastPathComponent().appendingPathComponent("auth.lock")
     /// The token most recently handed to a connection, to tell whether someone else renewed it since.
     private static var lastUsed: String?
 
@@ -22,19 +23,13 @@ enum Credentials {
 
     /// Renews the ChatGPT sign-in with its refresh token.
     static func renewChatGPT() async throws {
-        let lock = open(file.path + ".lock", O_RDWR | O_CREAT, 0o600)
-        defer { if lock >= 0 { flock(lock, LOCK_UN); close(lock) } }
-        if lock >= 0 {   // the ChatGPT app or codex may be renewing at the same moment
-            for _ in 0..<50 where flock(lock, LOCK_EX | LOCK_NB) != 0 { try await Task.sleep(for: .milliseconds(100)) }
+        let initial: (access: String, refresh: String)? = try await withLock {
+            let auth = try readAuth()
+            // Someone else already renewed it.
+            if auth.access != lastUsed, expiry(of: auth.access) > Date() { return nil }
+            return (auth.access, auth.refresh)
         }
-        guard let data = try? Data(contentsOf: file),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var tokens = root["tokens"] as? [String: Any],
-              let access = tokens["access_token"] as? String,
-              let refresh = tokens["refresh_token"] as? String
-        else { throw Problem(message: "Sign in to ChatGPT", retryable: false) }
-        // Someone else already renewed it.
-        if access != lastUsed, expiry(of: access) > Date() { return }
+        guard let initial else { return }
 
         var request = URLRequest(url: URL(string: "https://auth.openai.com/oauth/token")!)
         request.httpMethod = "POST"
@@ -43,8 +38,8 @@ enum Credentials {
         var form = URLComponents()
         form.queryItems = [
             URLQueryItem(name: "grant_type", value: "refresh_token"),
-            URLQueryItem(name: "refresh_token", value: refresh),
-            URLQueryItem(name: "client_id", value: claims(of: access)?["client_id"] as? String ?? ""),
+            URLQueryItem(name: "refresh_token", value: initial.refresh),
+            URLQueryItem(name: "client_id", value: claims(of: initial.access)?["client_id"] as? String ?? ""),
         ]
         request.httpBody = form.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
 
@@ -60,22 +55,69 @@ enum Credentials {
               let newAccess = renewed["access_token"] as? String
         else {
             log.notice("ChatGPT renewal refused with status \(status, privacy: .public)")
-            throw status >= 500 ? Problem(message: "Can't reach ChatGPT")
-                                : Problem(message: "Sign in to ChatGPT again", retryable: false)
+            if status >= 500 { throw Problem(message: "Can't reach ChatGPT") }
+            let alreadyRenewed = try await withLock {
+                let auth = try readAuth()
+                return auth.access != initial.access && expiry(of: auth.access) > Date()
+            }
+            if alreadyRenewed { return }
+            throw Problem(message: "Sign in to ChatGPT again", retryable: false)
         }
-        tokens["access_token"] = newAccess
-        for key in ["refresh_token", "id_token"] { if let value = renewed[key] as? String { tokens[key] = value } }
-        root["tokens"] = tokens
-        let stamp = ISO8601DateFormatter()
-        stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        root["last_refresh"] = stamp.string(from: Date())
-        guard let output = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .withoutEscapingSlashes]) else { return }
-        // Write a private temporary file and move it into place, so the file is never half written.
-        let temporary = file.deletingLastPathComponent().appendingPathComponent(".auth.json.sayit2")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: output, attributes: [.posixPermissions: 0o600]),
-              rename(temporary.path, file.path) == 0
-        else { throw Problem(message: "Could not save the ChatGPT sign-in", retryable: false) }
-        log.notice("ChatGPT sign-in renewed")
+
+        try await withLock {
+            var auth = try readAuth()
+            // Another process renewed auth.json while our request was in flight; keep its tokens.
+            if auth.access != initial.access, expiry(of: auth.access) > Date() { return }
+            auth.tokens["access_token"] = newAccess
+            for key in ["refresh_token", "id_token"] { if let value = renewed[key] as? String { auth.tokens[key] = value } }
+            auth.root["tokens"] = auth.tokens
+            let stamp = ISO8601DateFormatter()
+            stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            auth.root["last_refresh"] = stamp.string(from: Date())
+            guard let output = try? JSONSerialization.data(withJSONObject: auth.root, options: [.prettyPrinted, .withoutEscapingSlashes]) else {
+                throw Problem(message: "Could not save the ChatGPT sign-in", retryable: false)
+            }
+            // Write a private temporary file and move it into place, so the file is never half written.
+            let temporary = file.deletingLastPathComponent().appendingPathComponent(".auth.json.sayit2.\(UUID().uuidString)")
+            guard FileManager.default.createFile(atPath: temporary.path, contents: output, attributes: [.posixPermissions: 0o600]),
+                  rename(temporary.path, file.path) == 0
+            else {
+                try? FileManager.default.removeItem(at: temporary)
+                throw Problem(message: "Could not save the ChatGPT sign-in", retryable: false)
+            }
+            log.notice("ChatGPT sign-in renewed")
+        }
+    }
+
+    private static func withLock<T>(_ body: () throws -> T) async throws -> T {
+        let fd = open(lockFile.path, O_RDWR | O_CREAT, 0o600)
+        guard fd >= 0 else {
+            throw errno == ENOENT
+                ? Problem(message: "Sign in to ChatGPT", retryable: false)
+                : Problem(message: "Could not lock the ChatGPT sign-in", retryable: false)
+        }
+        defer { close(fd) }
+        var locked = false
+        for _ in 0..<50 {   // the ChatGPT app or codex may be renewing at the same moment
+            if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+                locked = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard locked else { throw Problem(message: "Could not lock the ChatGPT sign-in") }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
+
+    private static func readAuth() throws -> (root: [String: Any], tokens: [String: Any], access: String, refresh: String) {
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tokens = root["tokens"] as? [String: Any],
+              let access = tokens["access_token"] as? String,
+              let refresh = tokens["refresh_token"] as? String
+        else { throw Problem(message: "Sign in to ChatGPT", retryable: false) }
+        return (root, tokens, access, refresh)
     }
 
     private static func tokens() -> [String: Any]? {

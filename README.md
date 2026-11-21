@@ -24,7 +24,7 @@ Microphone access. New versions are offered in the menu ("Update to SayIt2 X.Y.Z
 bash scripts/build-app.sh              # build and sign build/SayIt2.app
 bash scripts/build-app.sh --notarize   # also notarize with Apple
 bash scripts/release.sh rc             # notarized release candidate, installed to /Applications
-bash scripts/release.sh publish        # release the tested commit on GitHub
+bash scripts/release.sh publish        # release the tested rc build on GitHub (run rc first)
 ```
 
 Requires Xcode. The first line of the menu shows the version and build number.

@@ -34,7 +34,8 @@ dictation in the ChatGPT desktop app.
 8. **Every build is versioned, and releases are tested first.** Bump `VERSION` for each build
    handed to the user. Builds are signed with the Developer ID certificate and notarized.
    Releases follow `scripts/release.sh`: `rc` installs a release candidate, the user tries it,
-   and only then `publish` releases that same commit. Never publish without the user's go-ahead.
+   and only then `publish` releases that tested `rc` build (requiring `rc` for that commit first).
+   Never publish without the user's go-ahead.
 
 ## Features (the contract)
 
