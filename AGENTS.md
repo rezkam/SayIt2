@@ -96,7 +96,8 @@ dictation in the ChatGPT desktop app.
 - The pill: black, just above the Dock, with five white bars that follow the voice and the live
   words beside them. It grows upward up to four lines and always keeps the newest words visible.
   Persian is drawn in Vazirmatn, right to left.
-- Menu bar icon: four black bars, never red. They move with the voice while recording.
+- Menu bar icon: monochrome `Si²` mark at rest, four bars that move with the voice while
+  recording, never red.
 - No animations or controls beyond these.
 
 **Reliability**

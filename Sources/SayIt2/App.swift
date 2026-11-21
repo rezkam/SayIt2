@@ -239,20 +239,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.image = Self.icon(amounts: amounts)
     }
 
-    /// Four black bars. At rest they have fixed heights; while recording `amounts` (0...1) sets them.
+    /// Monochrome Si² mark at rest; four bars that follow the voice while recording.
     /// Dimmed with a badge when something is missing.
     private static func icon(amounts: [CGFloat]? = nil, attention: Bool = false) -> NSImage {
-        let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
-            let rest: [CGFloat] = [4, 10, 6, 12]
-            NSColor.black.withAlphaComponent(attention ? 0.45 : 1).setFill()
-            for index in 0..<4 {
-                let height = amounts.map { 3 + 11 * $0[index] } ?? rest[index]
-                let bar = NSRect(x: CGFloat(4 + 4 * index), y: 8 - height / 2, width: 2.2, height: height)
-                NSBezierPath(roundedRect: bar, xRadius: 1.1, yRadius: 1.1).fill()
+        let image = NSImage(size: NSSize(width: 24, height: 18), flipped: false) { rect in
+            if let amounts {
+                NSColor.black.setFill()
+                for index in 0..<4 {
+                    let height = 3 + 11 * amounts[index]
+                    let bar = NSRect(x: CGFloat(5 + 4 * index), y: rect.midY - height / 2, width: 2.2, height: height)
+                    NSBezierPath(roundedRect: bar, xRadius: 1.1, yRadius: 1.1).fill()
+                }
+                return true
             }
+            let color = NSColor.black.withAlphaComponent(attention ? 0.45 : 1)
+            let baseFont = NSFont.systemFont(ofSize: 13.5, weight: .bold)
+            let expFont = NSFont.systemFont(ofSize: 8.5, weight: .bold)
+            let base = NSAttributedString(string: "Si", attributes: [.font: baseFont, .foregroundColor: color, .kern: -0.5])
+            let exp = NSAttributedString(string: "2", attributes: [.font: expFont, .foregroundColor: color])
+            let baseSize = base.size(), expSize = exp.size()
+            let totalWidth = baseSize.width + 0.5 + expSize.width
+            let x = (rect.width - totalWidth) / 2
+            let y = (rect.height - baseSize.height) / 2 - 0.5
+            base.draw(at: NSPoint(x: x, y: y))
+            exp.draw(at: NSPoint(x: x + baseSize.width + 0.5, y: y + baseSize.height * 0.44))
             if attention {
                 NSColor.black.setFill()
-                NSBezierPath(ovalIn: NSRect(x: 16.5, y: 9, width: 5.5, height: 5.5)).fill()
+                NSBezierPath(ovalIn: NSRect(x: rect.width - 5.5, y: 2, width: 4.5, height: 4.5)).fill()
             }
             return true
         }
