@@ -27,8 +27,6 @@ enum Provider: String, CaseIterable {
 /// All settings, read from the plain text file ~/.config/sayit2/config before every dictation.
 struct Config {
     var provider = Provider.chatgpt
-    /// The chosen microphone's name; nil for the system default.
-    var microphone: String?
     var deepgramKey: String?
     var deepgramURL = "wss://api.deepgram.com/v1/listen"
     /// Every `deepgram.<name> = <value>` line, sent to Deepgram as a query parameter.
@@ -48,8 +46,6 @@ struct Config {
         for (key, value) in entries((try? String(contentsOf: file, encoding: .utf8)) ?? "") {
             if key == "provider" {
                 config.provider = Provider(rawValue: value) ?? config.provider
-            } else if key == "microphone" {
-                config.microphone = value.isEmpty ? nil : value
             } else if key == "deepgram.api_key" {
                 config.deepgramKey = value.isEmpty ? nil : value
             } else if key == "deepgram.url" {
@@ -99,10 +95,6 @@ struct Config {
 
     # Which service transcribes: chatgpt or deepgram. The menu bar menu changes this line.
     provider = chatgpt
-
-    # Which microphone records: its name as listed in the menu, or empty for the system default.
-    # The menu bar menu changes this line. When it is not connected, the system default is used.
-    microphone =
 
     # ---------- ChatGPT ----------
     # Uses the sign-in of the ChatGPT desktop app on this Mac. Nothing to set.

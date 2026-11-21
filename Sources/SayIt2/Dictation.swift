@@ -64,11 +64,7 @@ final class Dictation {
         }
         mic.onNotice = { [weak self] notice in self?.onNotice?(notice) }
         do {
-            let chosen = config.microphone.flatMap { name in Microphones.all.first { $0.localizedName == name } }
-            // A chosen microphone that is not connected is replaced by the system default without
-            // interrupting: the menu already shows it as not connected.
-            if config.microphone != nil, chosen == nil { log.notice("chosen microphone not connected, using the system default") }
-            try mic.start(sampleRate: config.provider.sampleRate, device: chosen)
+            try mic.start(sampleRate: config.provider.sampleRate)
         } catch {
             typist.insert("", for: job)
             throw error

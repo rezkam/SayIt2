@@ -1,14 +1,5 @@
 import AVFoundation
 
-/// The microphones macOS offers for recording.
-enum Microphones {
-    static var all: [AVCaptureDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
-    }
-
-    static var systemDefault: AVCaptureDevice? { AVCaptureDevice.default(for: .audio) }
-}
-
 /// Microphone capture, delivered as mono PCM16 at the provider's rate, with a health watch that
 /// keeps the recording going when the device misbehaves.
 ///
@@ -40,12 +31,12 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var warnedSilent = false
     private var recoveries = 0
 
-    /// Records from `device`, or from the system default when it is nil.
-    func start(sampleRate: Double, device: AVCaptureDevice?) throws {
+    /// Records from the system default microphone.
+    func start(sampleRate: Double) throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw Problem(message: "Allow microphone access", retryable: false)
         }
-        guard let device = device ?? Microphones.systemDefault else { throw Problem(message: "No microphone", retryable: false) }
+        guard let device = AVCaptureDevice.default(for: .audio) else { throw Problem(message: "No microphone", retryable: false) }
         try use(device)
         inUse = device
         let output = AVCaptureAudioDataOutput()
@@ -126,7 +117,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             onInterrupted?()
             return
         }
-        let fallback = Microphones.systemDefault
+        let fallback = AVCaptureDevice.default(for: .audio)
         inUse = fallback ?? inUse
         started = Date()
         lastAudio = nil

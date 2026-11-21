@@ -42,7 +42,7 @@ dictation in the ChatGPT desktop app.
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
 - Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3),
-  microphone choice (listed directly in the menu under a "Microphone" heading), Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
+  Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Crash and error reports through Sentry (`Reports.swift`, Sentry project `sayit2`), only in
@@ -69,16 +69,13 @@ dictation in the ChatGPT desktop app.
   renewed tokens back, so the user never has to open the ChatGPT app.
 - Deepgram Nova-3 streaming, with its API key and every parameter in the config file.
   `interim_results=true` (needed for live words) and `smart_format=true` by default.
-- Microphone: "System Default" (follows macOS) or a specific connected device, saved by name in
-  the config. If the chosen one is not connected, or is lost mid-dictation, the system default
-  records without any message (the menu shows the chosen one as "not connected"); the choice is
-  kept for when the device returns. Only real problems, such as a muted microphone, are shown.
+- Microphone: the system default. If it is lost mid-dictation, recording switches to the current
+  system default without a message. Only real problems, such as a muted microphone, are shown.
 - Audio formats match the working reference apps: ChatGPT PCM16 48 kHz mono, Base64 in JSON;
   Deepgram PCM16 16 kHz mono, binary frames. macOS delivers the capture at that rate.
 - Microphone handling follows the ChatGPT and Claude apps: input-only capture, a fallback to
   the system default, a device lost mid-dictation replaced without ending the dictation, a
-  health watch (no audio: recover; only zeros: tell the user), and a device list that updates
-  live, even while the menu is open. Audio is sent as captured: no noise suppression, gain or
+  health watch (no audio: recover; only zeros: tell the user). Audio is sent as captured: no noise suppression, gain or
   echo cancellation (see the measured facts).
 - English and Persian, detected automatically on both providers.
 

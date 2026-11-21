@@ -12,7 +12,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
     private let updates = Updates()
-    private var menuIsOpen = false
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
     private var trusted = false
@@ -37,15 +36,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         typist.onChange = { [weak self] in self?.refresh() }
         indicator.onMessageEnd = { [weak self] in self?.refresh() }
         updates.onChange = { [weak self] in self?.refresh() }
-        // Keep the microphone list current, even while the menu is open.
-        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.menuIsOpen, let menu = self.statusItem.menu else { return }
-                    self.menuNeedsUpdate(menu)
-                }
-            }
-        }
         updates.start()
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
@@ -139,9 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Menu
 
-    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
-    func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
-
     func menuNeedsUpdate(_ menu: NSMenu) {
         refresh()
         menu.removeAllItems()
@@ -159,23 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let item = menu.addItem(withTitle: provider.title, action: #selector(chooseProvider(_:)), keyEquivalent: "")
             item.representedObject = provider.rawValue
             item.state = provider == config.provider ? .on : .off
-        }
-        menu.addItem(.separator())
-        menu.addItem(.sectionHeader(title: "Microphone"))
-        let systemDefault = menu.addItem(withTitle: "System Default", action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
-        systemDefault.representedObject = ""
-        systemDefault.state = config.microphone == nil ? .on : .off
-        if let name = Microphones.systemDefault?.localizedName {
-            if #available(macOS 14.4, *) { systemDefault.subtitle = "Now: \(name)" } else { systemDefault.title = "System Default (\(name))" }
-        }
-        let microphones = Microphones.all.map(\.localizedName)
-        for name in microphones {
-            let item = menu.addItem(withTitle: name, action: #selector(chooseMicrophone(_:)), keyEquivalent: "")
-            item.representedObject = name
-            item.state = name == config.microphone ? .on : .off
-        }
-        if let chosen = config.microphone, !microphones.contains(chosen) {
-            menu.addItem(withTitle: "\(chosen) (not connected)", action: nil, keyEquivalent: "").state = .on
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
@@ -199,11 +169,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let name = item.representedObject as? String, let provider = Provider(rawValue: name) else { return }
         if !Config.set("provider", to: provider.rawValue) { indicator.flash("Config file could not be read") }
         refresh()
-    }
-
-    @objc private func chooseMicrophone(_ item: NSMenuItem) {
-        guard let name = item.representedObject as? String else { return }
-        if !Config.set("microphone", to: name) { indicator.flash("Config file could not be read") }
     }
 
     /// Opens the settings file in the default text editor.
