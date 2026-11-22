@@ -40,7 +40,15 @@ enum Usage {
     /// Updates usage_stats.json from one ended root dictation span. Must run on `telemetryQueue`.
     static func record(_ span: SpanData, in directory: URL) {
         let file = directory.appendingPathComponent("usage_stats.json")
-        var store = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Store.self, from: $0) } ?? Store()
+        var store: Store
+        if FileManager.default.fileExists(atPath: file.path) {
+            // Never overwrite an existing file we cannot read or decode.
+            guard let data = try? Data(contentsOf: file),
+                  let decoded = try? JSONDecoder().decode(Store.self, from: data) else { return }
+            store = decoded
+        } else {
+            store = Store()
+        }
         let c = Calendar.current.dateComponents([.year, .month, .day, .hour], from: span.startTime)
         let dayKey = String(format: "%04d-%02d-%02d", c.year ?? 1970, c.month ?? 1, c.day ?? 1)
         let hourKey = String(format: "%02d", c.hour ?? 0)
