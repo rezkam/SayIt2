@@ -12,9 +12,6 @@
 #   SAYIT2_NOTARY_PROFILE    notarytool keychain profile, required with --notarize.
 #   SAYIT2_BUNDLE_ID         bundle identifier; default nu.rez.sayit2.
 #   SAYIT2_REPO              GitHub owner/name for the update feed; default: the origin remote.
-#   SAYIT2_SENTRY_DSN        Sentry DSN for crash and error reports. When unset, it is looked up
-#                            for the Sentry project "sayit2" with the signed-in `sentry` tool;
-#                            without either, reports are off.
 # The update signing key lives in the login Keychain under the Sparkle account "sayit2".
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,17 +22,6 @@ sparkle=".build/artifacts/sparkle/Sparkle"
 
 xcrun swift build -c release
 binary="$(xcrun swift build -c release --show-bin-path)/SayIt2"
-
-# Crash reports are enabled when a DSN is known.
-dsn="${SAYIT2_SENTRY_DSN:-}"
-if [[ -z "$dsn" ]] && command -v sentry >/dev/null; then
-    dsn="$(sentry dsn list sayit2 --json 2>/dev/null | python3 -I -c '
-import json, sys
-keys = json.load(sys.stdin)
-keys = keys if isinstance(keys, list) else keys.get("data", [])
-print(next((k["dsn"] for k in keys if k.get("project") == "sayit2" and k.get("isActive", True)), ""))
-' || true)"
-fi
 
 # Updates are enabled when the GitHub repository is known.
 repo="${SAYIT2_REPO:-$(git remote get-url origin 2>/dev/null | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##' || true)}"
@@ -57,9 +43,6 @@ app="build/SayIt2.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp -f "$binary" "$app/Contents/MacOS/SayIt2"
-# Debug symbols for readable crash reports; release.sh uploads them to Sentry.
-rm -rf build/SayIt2.dSYM
-ditto "$binary.dSYM" build/SayIt2.dSYM
 cp -f Resources/AppIcon.icns Resources/Fonts/Vazirmatn.ttf Resources/Fonts/Vazirmatn-OFL.txt "$app/Contents/Resources/"
 ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -77,8 +60,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$build</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>SayIt2 listens while you hold or double-tap Right Option, to type what you say.</string>
-    <key>SentryDSN</key><string>$dsn</string>$update_keys
+    <key>NSMicrophoneUsageDescription</key><string>SayIt2 listens while you hold or double-tap Right Option, to type what you say.</string>$update_keys
 </dict>
 </plist>
 PLIST
@@ -109,4 +91,4 @@ if [[ "${1:-}" == "--notarize" ]]; then
     spctl --assess --type execute --verbose "$app"
 fi
 
-echo "$app: version $version (build $build)${repo:+, updates from $repo}${dsn:+, crash reports on}"
+echo "$app: version $version (build $build)${repo:+, updates from $repo}"

@@ -41,16 +41,6 @@ the menu. Saved changes apply to the next dictation.
   live streaming API as a parameter (model, language, formatting, key terms and so on); the
   file lists them all with a short explanation.
 
-## Crash and error reports
-
-Builds made with a Sentry DSN (`SAYIT2_SENTRY_DSN`, or looked up for the Sentry project `sayit2`
-with a signed-in `sentry` tool) send crash reports, app hangs, and the short
-problem messages the pill shows (such as "Can't reach ChatGPT") to Sentry. They never include
-what you said, audio, device names, settings, or IP addresses, nothing in them identifies
-the installation or the Mac, and network activity is not recorded. Builds without a DSN send
-nothing. Each published release uploads its debug symbols to Sentry, so crash reports show
-function names.
-
 ## Telemetry and usage
 
 SayIt2 writes local telemetry and daily usage counters under `~/.local/share/sayit2/`.
@@ -63,7 +53,7 @@ Nothing leaves your Mac.
   app bundle ID.
 - No audio is ever saved. Transcript text and raw provider messages are omitted by default; set
   `telemetry.transcripts = true` in `~/.config/sayit2/config` to write them to
-  `~/.local/share/sayit2/otel/logs.jsonl` for debugging (they are never sent to Sentry).
+  `~/.local/share/sayit2/otel/logs.jsonl` for debugging.
 
 Example with `jq` to print audio seconds per day per model:
 

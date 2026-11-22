@@ -17,7 +17,7 @@ dictation in the ChatGPT desktop app.
    words recognized so far must reach the text field. Text waits for its field as long as it
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,400 lines; keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,300 lines; keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -30,7 +30,7 @@ dictation in the ChatGPT desktop app.
 6. **Silent and private.** No sounds. No clipboard use. No audio history. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
-   is set in the config, only to `~/.local/share/sayit2/otel/logs.jsonl`, and never to Sentry.
+   is set in the config, only to `~/.local/share/sayit2/otel/logs.jsonl`. These files never leave the Mac.
    Never write keys or personal data anywhere but the config file, the shared ChatGPT sign-in
    file, and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
@@ -49,12 +49,6 @@ dictation in the ChatGPT desktop app.
   Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
-- Crash and error reports through Sentry (`Reports.swift`, Sentry project `sayit2`), only in
-  builds with a DSN (`SAYIT2_SENTRY_DSN`, else looked up with the signed-in `sentry` tool).
-  `release.sh publish` uploads the release's dSYM so stack traces are readable. Reports carry crashes, hangs, and the pill's problem messages. Never transcripts, audio,
-  device names, settings, keys, IP addresses, or anything that identifies the installation or
-  the Mac; network breadcrumbs, failed-request capture, and session tracking are off; no
-  performance tracing.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
   update key in the login Keychain (Sparkle account `sayit2`).
 - Local telemetry through the OpenTelemetry Swift SDK (`opentelemetry-swift-core`, in

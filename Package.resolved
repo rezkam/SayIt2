@@ -1,5 +1,5 @@
 {
-  "originHash" : "3ebe426ca0e258c4716406fb411ae9b7dd9c1ba0ee4187ced91d6fed68ae84b8",
+  "originHash" : "0ba68aae9f4232e56b5fea57256956c4f92502a5e852bdbdd295cf0fed9a797f",
   "pins" : [
     {
       "identity" : "opentelemetry-swift-core",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "c6fcee77cfc21ba400366f12475217c7b6e1d605",
         "version" : "2.6.0"
-      }
-    },
-    {
-      "identity" : "sentry-cocoa",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/getsentry/sentry-cocoa",
-      "state" : {
-        "revision" : "485e0622e00d60d71eb6b519822188e2eb7c29e3",
-        "version" : "9.35.0"
       }
     },
     {

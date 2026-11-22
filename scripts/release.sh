@@ -22,14 +22,12 @@ fail() { echo "error: $*" >&2; exit 1; }
 
 rc="build/rc"
 app="$rc/SayIt2.app"
-dsym="$rc/SayIt2.dSYM"
 
 if [[ "$mode" == rc ]]; then
     bash scripts/build-app.sh --notarize
     [[ "$(codesign -dv "build/SayIt2.app" 2>&1)" == *"(runtime)"* ]] || fail "app is not signed for release"
     rm -rf "$rc" && mkdir -p "$rc"
     ditto build/SayIt2.app "$app"
-    ditto build/SayIt2.dSYM "$dsym"
     git rev-parse HEAD > "$rc/commit"
     pkill -x SayIt2 || true
     # Replace, not merge: a file left over from an earlier build would break the signature.
@@ -43,7 +41,7 @@ fi
 git fetch --quiet origin main
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "push this commit to origin/main first"
 ! gh release view "v$version" >/dev/null 2>&1 || fail "v$version is already released; bump VERSION"
-[[ -d "$app" && -d "$dsym" && -f "$rc/commit" ]] || fail "run release.sh rc for this commit first"
+[[ -d "$app" && -f "$rc/commit" ]] || fail "run release.sh rc for this commit first"
 [[ "$(cat "$rc/commit")" == "$(git rev-parse HEAD)" ]] || fail "release candidate is for a different commit; run release.sh rc"
 plist="$app/Contents/Info.plist"
 [[ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || true)" == "$version" ]] || fail "release candidate version does not match VERSION; run release.sh rc"
@@ -66,13 +64,6 @@ codesign --force --timestamp --sign "$identity" "$dmg"
 xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature --verbose "$dmg"
-
-# Debug symbols to Sentry, so crash reports from this release show function names.
-dsn="$(/usr/libexec/PlistBuddy -c "Print :SentryDSN" "$app/Contents/Info.plist" 2>/dev/null || true)"
-if [[ -n "$dsn" ]]; then
-    command -v sentry >/dev/null || fail "install and sign in to the sentry tool to upload debug symbols"
-    SENTRY_DSN="$dsn" sentry debug-files upload "$dsym" --type dsym
-fi
 
 # Update feed: one item for this release, with the DMG's signature, then the feed itself signed.
 signature="$("$sparkle/bin/sign_update" --account sayit2 -p "$dmg")"
