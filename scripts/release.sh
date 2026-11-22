@@ -54,8 +54,8 @@ spctl --assess --type execute --verbose "$app"
 
 # Disk image with the app and a link to /Applications, signed and notarized.
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-identity="${SAYIT2_SIGNING_IDENTITY:-${SPEAKFLOW_SIGNING_IDENTITY:?set SAYIT2_SIGNING_IDENTITY}}"
-profile="${SAYIT2_NOTARY_PROFILE:-${SPEAKFLOW_NOTARY_PROFILE:?set SAYIT2_NOTARY_PROFILE}}"
+identity="${SAYIT2_SIGNING_IDENTITY:?set SAYIT2_SIGNING_IDENTITY}"
+profile="${SAYIT2_NOTARY_PROFILE:?set SAYIT2_NOTARY_PROFILE}"
 out="build/release-$version"
 rm -rf "$out" && mkdir -p "$out/stage"
 ditto "$app" "$out/stage/SayIt2.app"

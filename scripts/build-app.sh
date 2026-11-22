@@ -7,9 +7,9 @@
 # Version: the VERSION file. Build number: the number of commits.
 #
 # Environment (nothing identifying is stored in the repository):
-#   SAYIT2_SIGNING_IDENTITY  Developer ID Application certificate; falls back to
-#                            SPEAKFLOW_SIGNING_IDENTITY, then the first code signing identity.
-#   SAYIT2_NOTARY_PROFILE    notarytool keychain profile; falls back to SPEAKFLOW_NOTARY_PROFILE.
+#   SAYIT2_SIGNING_IDENTITY  Developer ID Application certificate; falls back to the first
+#                            code signing identity.
+#   SAYIT2_NOTARY_PROFILE    notarytool keychain profile, required with --notarize.
 #   SAYIT2_BUNDLE_ID         bundle identifier; default nu.rez.sayit2.
 #   SAYIT2_REPO              GitHub owner/name for the update feed; default: the origin remote.
 #   SAYIT2_SENTRY_DSN        Sentry DSN for crash and error reports. When unset, it is looked up
@@ -83,7 +83,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-identity="${SAYIT2_SIGNING_IDENTITY:-${SPEAKFLOW_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | awk 'NR==1 && $2 ~ /^[0-9A-F]{40}$/ {print $2}')}}"
+identity="${SAYIT2_SIGNING_IDENTITY:-$(security find-identity -v -p codesigning | awk 'NR==1 && $2 ~ /^[0-9A-F]{40}$/ {print $2}')}"
 if [[ -n "$identity" ]]; then
     # Inside out: Sparkle's helpers, Sparkle, then the app. Hardened runtime and a secure
     # timestamp are what Apple's notary service requires.
@@ -101,7 +101,7 @@ fi
 codesign --verify --deep --strict "$app"
 
 if [[ "${1:-}" == "--notarize" ]]; then
-    profile="${SAYIT2_NOTARY_PROFILE:-${SPEAKFLOW_NOTARY_PROFILE:?set SAYIT2_NOTARY_PROFILE to a notarytool keychain profile}}"
+    profile="${SAYIT2_NOTARY_PROFILE:?set SAYIT2_NOTARY_PROFILE to a notarytool keychain profile}"
     archive="$(mktemp -d)/SayIt2.zip"
     ditto -c -k --keepParent "$app" "$archive"
     xcrun notarytool submit "$archive" --keychain-profile "$profile" --wait

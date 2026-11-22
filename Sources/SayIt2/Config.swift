@@ -62,20 +62,19 @@ struct Config {
         return config
     }
 
-    /// Changes only the line for `key` (adding it after the provider line if it is missing),
+    /// Changes only the line for `key` (adding it at the top if it is missing),
     /// leaving the rest of the file as the user wrote it. Returns false, changing nothing, if the
     /// file cannot be read: writing then would erase it.
     static func set(_ key: String, to value: String) -> Bool {
         _ = load()
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
         var lines = text.components(separatedBy: "\n")
-        let line = value.isEmpty ? "\(key) =" : "\(key) = \(value)"
+        let line = "\(key) = \(value)"
         // The last line for a key is the one `load` ends up using.
         if let index = lines.lastIndex(where: { entries($0).first?.key == key }) {
             lines[index] = line
         } else {
-            let provider = lines.firstIndex { entries($0).first?.key == "provider" }
-            lines.insert(line, at: provider.map { $0 + 1 } ?? 0)
+            lines.insert(line, at: 0)
         }
         // Not atomic on purpose: that would replace the file and lose its private permissions.
         return (try? lines.joined(separator: "\n").write(to: file, atomically: false, encoding: .utf8)) != nil
