@@ -54,7 +54,7 @@ enum Credentials {
         guard status == 200, let renewed = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
               let newAccess = renewed["access_token"] as? String
         else {
-            log.notice("ChatGPT renewal refused with status \(status, privacy: .public)")
+            Telemetry.event("ChatGPT renewal refused with status \(status)")
             if status >= 500 { throw Problem(message: "Can't reach ChatGPT") }
             let alreadyRenewed = try await withLock {
                 let auth = try readAuth()
@@ -85,7 +85,7 @@ enum Credentials {
                 try? FileManager.default.removeItem(at: temporary)
                 throw Problem(message: "Could not save the ChatGPT sign-in", retryable: false)
             }
-            log.notice("ChatGPT sign-in renewed")
+            Telemetry.event("ChatGPT sign-in renewed")
         }
     }
 

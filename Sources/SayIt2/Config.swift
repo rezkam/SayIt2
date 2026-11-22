@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-let log = Logger(subsystem: "sayit2", category: "app")
 
 /// Something went wrong in a way worth telling the user about.
 struct Problem: Error {
@@ -31,6 +28,10 @@ struct Config {
     var deepgramURL = "wss://api.deepgram.com/v1/listen"
     /// Every `deepgram.<name> = <value>` line, sent to Deepgram as a query parameter.
     var deepgramParameters: [URLQueryItem] = []
+    /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
+    var telemetryTranscripts = false
+
+    var deepgramModel: String { deepgramParameters.first { $0.name == "model" }?.value ?? "nova-3" }
 
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
     /// These describe the audio SayIt2 sends, so the file cannot change them.
@@ -50,6 +51,8 @@ struct Config {
                 config.deepgramKey = value.isEmpty ? nil : value
             } else if key == "deepgram.url" {
                 if !value.isEmpty { config.deepgramURL = value }
+            } else if key == "telemetry.transcripts" {
+                config.telemetryTranscripts = value.lowercased() == "true"
             } else if key.hasPrefix("deepgram."), !value.isEmpty, fixed[String(key.dropFirst(9))] == nil {
                 config.deepgramParameters.append(URLQueryItem(name: String(key.dropFirst(9)), value: value))
             }
@@ -168,6 +171,11 @@ struct Config {
     # encoding = linear16, sample_rate = 16000, channels = 1.
     # Not useful for typing dictation: callback, callback_method, multichannel,
     # diarize_model (speaker labels), keywords (models older than Nova-3).
+
+    # ---------- Telemetry ----------
+    # When true, the exact provider messages and the final text are written to
+    # ~/.local/share/sayit2/otel/logs.jsonl for debugging; off by default.
+    # telemetry.transcripts = false
 
     """
 }

@@ -17,7 +17,7 @@ dictation in the ChatGPT desktop app.
    words recognized so far must reach the text field. Text waits for its field as long as it
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 1,500 lines; keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,400 lines; keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -27,8 +27,12 @@ dictation in the ChatGPT desktop app.
    documentation in the same change. No dead code, no compatibility shims, no leftovers.
 5. **Settings live in one text file.** No settings window. New settings go in
    `~/.config/sayit2/config`, are explained in its template, and apply on the next dictation.
-6. **Silent and private.** No sounds. No clipboard use. No audio or transcript history. Never
-   write keys or personal data anywhere but the config file and the shared ChatGPT sign-in file.
+6. **Silent and private.** No sounds. No clipboard use. No audio history. Usage data
+   (durations, counts, provider, model, target app bundle ID) is written locally under
+   `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
+   is set in the config, only to `~/.local/share/sayit2/otel/logs.jsonl`, and never to Sentry.
+   Never write keys or personal data anywhere but the config file, the shared ChatGPT sign-in
+   file, and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
    in the same commit.
 8. **Every build is versioned, and releases are tested first.** Bump `VERSION` for each build
@@ -53,6 +57,9 @@ dictation in the ChatGPT desktop app.
   performance tracing.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
   update key in the login Keychain (Sparkle account `sayit2`).
+- Local telemetry through the OpenTelemetry Swift SDK (`opentelemetry-swift-core`, in
+  `Telemetry.swift`, `TelemetryFile.swift`, and `Usage.swift`), written locally only; see
+  Telemetry and usage records below.
 
 **Hotkey**
 - Right Option is the only shortcut. Hold to dictate, release to finish. Double-tap for
@@ -103,10 +110,21 @@ dictation in the ChatGPT desktop app.
 - Connection failures, timeouts, expired sign-ins, and microphone loss always return the app to
   a clean idle state with a short message in the pill.
 
+**Telemetry and usage records**
+- OpenTelemetry traces, metrics, and logs as OTLP/JSON Lines in
+  `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept).
+- Daily usage in `~/.local/share/sayit2/usage_stats.json` (per day, by model, language, hour,
+  trigger, and app; never pruned).
+- Local only: nothing is sent anywhere.
+- Instrumentation lives in the `Dictation` and `Transcriber` base class spans plus the one
+  `Telemetry.event` helper, and metrics and usage are derived from ended spans, so new
+  measurements are added in one place.
+- Telemetry must never block, delay, or fail a dictation.
+
 ## Out of scope
 
 Local transcription models, batch transcription, voice activity detection, more shortcuts, Escape or Enter handling, settings screens, customization beyond
-the config file, recording or transcript history, launch at login, automated tests, sounds.
+the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), statistics views, launch at login, automated tests, sounds.
 
 ## Measured facts the code relies on
 

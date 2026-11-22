@@ -1,4 +1,5 @@
 import Foundation
+import OpenTelemetryApi
 
 /// One streaming connection to a provider. Subclasses describe the provider's messages.
 @MainActor
@@ -21,10 +22,15 @@ class Transcriber {
     private(set) var lastMessage = Date()
     /// Whether audio may be sent yet.
     var isReady: Bool { true }
+    var span: Span?
+    var logTranscripts = false
 
     private var task: URLSessionWebSocketTask?
     private var pinger: Task<Void, Never>?
     private var ended = false
+    private var sawMessage = false
+    private var sawText = false
+    private var spanEnded = false
 
     func request() throws -> URLRequest { fatalError("subclass") }
     func opened() {}
@@ -36,8 +42,22 @@ class Transcriber {
     func closed(status: Int) -> Problem { Problem(message: "Connection lost") }
 
     func start() {
+        if let orig = onInterim {
+            onInterim = { [weak self] text in
+                if !text.isEmpty { self?.noteFirstText() }
+                orig(text)
+            }
+        }
+        if let orig = onFinal {
+            onFinal = { [weak self] text, covered in
+                if !text.isEmpty { self?.noteFirstText() }
+                orig(text, covered)
+            }
+        }
         do {
-            let task = URLSession.shared.webSocketTask(with: try request())
+            let req = try request()
+            if let host = req.url?.host { span?.setAttribute(key: "server.address", value: host) }
+            let task = URLSession.shared.webSocketTask(with: req)
             self.task = task
             task.resume()
             opened()
@@ -59,12 +79,14 @@ class Transcriber {
     /// Drops the connection without reporting anything.
     func cancel() {
         ended = true
+        endSpan(problem: nil)
         pinger?.cancel()
         task?.cancel()
     }
 
     func end(_ problem: Problem?) {
         guard !ended else { return }
+        endSpan(problem: problem)
         cancel()
         onEnd?(problem)
     }
@@ -83,13 +105,39 @@ class Transcriber {
                 guard case .success(let message) = result else { return self.failed() }
                 self.lastActivity = Date()
                 self.lastMessage = Date()
-                if case .string(let text) = message,
-                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] {
-                    self.received(object)
+                if !self.sawMessage {
+                    self.sawMessage = true
+                    self.span?.addEvent(name: "first_message")
+                }
+                if case .string(let text) = message {
+                    if self.logTranscripts {
+                        Telemetry.event(text, name: "sayit2.provider.message", span: self.span, unified: false)
+                    }
+                    if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] {
+                        self.received(object)
+                    }
                 }
                 self.receive()
             }
         }
+    }
+
+    private func noteFirstText() {
+        guard !sawText else { return }
+        sawText = true
+        span?.addEvent(name: "first_text")
+    }
+
+    private func endSpan(problem: Problem?) {
+        guard !spanEnded else { return }
+        spanEnded = true
+        if let problem {
+            span?.setAttribute(key: "error.type", value: problem.message)
+            span?.status = .error(description: problem.message)
+        } else {
+            span?.status = .ok
+        }
+        span?.end()
     }
 
     private func failed() {

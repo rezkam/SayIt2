@@ -15,7 +15,7 @@ let syntheticEventTag: Int64 = 0x5341_5932
 final class Typist {
     final class Job {
         fileprivate var app: pid_t
-        fileprivate let bundle: String?
+        let bundle: String?
         /// The field that had focus when dictation started, if the app exposes one.
         fileprivate var field: AXUIElement?
         /// The text to insert; nil until the dictation has finished.

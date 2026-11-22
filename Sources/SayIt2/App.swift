@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Reports.start()
+        Telemetry.start()
         // Vazirmatn (SIL Open Font License) draws Persian words in the pill.
         if let font = Bundle.main.url(forResource: "Vazirmatn", withExtension: "ttf") {
             CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
@@ -49,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = AXIsProcessTrusted()
         guard now != trusted else { return }
         let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        log.notice("accessibility \(now, privacy: .public), microphone \(microphone, privacy: .public)")
+        Telemetry.event("accessibility \(now), microphone \(microphone)")
         if now { hotkey.install() }
         trusted = now
         refresh()
@@ -70,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictation.onStopped = { [weak self] in self?.refresh() }
             dictation.onEnd = { [weak self, weak dictation] problem in
                 self?.dictations.removeAll { $0 === dictation }
-                log.notice("recording ended: \(problem ?? "ok", privacy: .public)")
+                Telemetry.event("recording ended: \(problem ?? "ok")", span: dictation?.span)
                 if let problem {
                     self?.indicator.flash(problem)
                     Reports.problem(problem, provider: config.provider)
@@ -79,11 +80,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             dictation.onNotice = { [weak self] notice in self?.indicator.flash(notice) }
             dictations.append(dictation)
-            log.notice("recording started: \(config.provider.rawValue, privacy: .public), hands-free \(handsFree, privacy: .public)")
+            Telemetry.event("recording started: \(config.provider.rawValue), hands-free \(handsFree)", span: dictation.span)
             dictation.start()
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
-            log.notice("could not start: \(message, privacy: .public)")
+            Telemetry.event("could not start: \(message)")
             indicator.flash(message)
         }
         refresh()

@@ -1,4 +1,5 @@
 import AppKit
+import OpenTelemetryApi
 
 /// One recording, from the key press until its final text is handed to the typist.
 /// Live text only goes to the pill; the text field receives the final text once, at the end.
@@ -9,6 +10,7 @@ import AppKit
 @MainActor
 final class Dictation {
     let handsFree: Bool
+    let span: Span
     /// A problem worth showing in the pill while recording, such as a silent microphone.
     var onNotice: ((String) -> Void)?
     private(set) var isRecording = true
@@ -39,6 +41,8 @@ final class Dictation {
     private var shown = ""           // the best text so far
     private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
     private var finishedAt: Date?   // when the provider was told there is no more audio
+    private var finishedMono: UInt64?
+    private var attempts = 0
     private var sawKeyDown = false
     private var captured = 0        // audio bytes recorded, for the log
     private var ended = false
@@ -50,6 +54,14 @@ final class Dictation {
         if config.provider == .deepgram, config.deepgramKey == nil { throw Problem(message: "Add the Deepgram key in the config") }
         guard let job = typist.begin() else { throw Problem(message: "No app to type into") }
         self.job = job
+
+        let span = Telemetry.startSpan("sayit2.dictation")
+        span.setAttribute(key: "gen_ai.provider.name", value: config.provider.rawValue)
+        if config.provider == .deepgram { span.setAttribute(key: "gen_ai.request.model", value: config.deepgramModel) }
+        span.setAttribute(key: "gen_ai.operation.name", value: "speech_to_text")
+        span.setAttribute(key: "sayit2.trigger_mode", value: handsFree ? "hands_free" : "hold")
+        if let bundle = job.bundle { span.setAttribute(key: "sayit2.target_app.bundle_id", value: bundle) }
+        self.span = span
 
         mic.onAudio = { [weak self] data, level in
             guard let self, self.capturing else { return }
@@ -103,16 +115,21 @@ final class Dictation {
         guard shown.isEmpty else { return stop() }
         close()
         typist.insert("", for: job)
+        endSpan(reason: "cancelled", text: "", problem: nil)
         onEnd?(nil)
     }
 
     private func connect() {
+        attempts += 1
         let stream: Transcriber = provider == .chatgpt ? ChatGPTStream() : DeepgramStream(config: config)
+        stream.span = Telemetry.startSpan("sayit2.stream", parent: span, kind: .client)
+        stream.logTranscripts = config.telemetryTranscripts
         self.stream = stream
         sent = 0
         trimmed = 0
         live = ""
         finishedAt = nil
+        finishedMono = nil
 
         stream.onInterim = { [weak self, weak stream] text in
             guard let self, self.stream === stream else { return }
@@ -176,6 +193,7 @@ final class Dictation {
         }
         if !capturing, sent == audio.count, finishedAt == nil {
             finishedAt = now
+            finishedMono = DispatchTime.now().uptimeNanoseconds
             stream.finish()
         }
     }
@@ -215,7 +233,7 @@ final class Dictation {
             return
         }
         failures += 1
-        log.notice("connection lost: \(problem.message, privacy: .public), failure \(self.failures)")
+        Telemetry.event("connection lost: \(problem.message), failure \(self.failures)", span: span)
         // At most three reconnects per dictation. A replay can produce live text and still fail
         // again, so progress must not reset this count, or a failing dictation never ends.
         guard problem.retryable, failures <= 3 else { return complete(problem: problem.message) }
@@ -233,9 +251,34 @@ final class Dictation {
         // After a failure, insert the best text received so far rather than losing the speech.
         let text = problem != nil && catchingUp ? shown : currentText
         let seconds = Double(captured) / 2 / provider.sampleRate
-        log.notice("dictation finished: \(String(format: "%.1f", seconds), privacy: .public) s of audio, \(text.count, privacy: .public) characters")
+        Telemetry.event("dictation finished: \(String(format: "%.1f", seconds)) s of audio, \(text.count) characters", span: span)
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
+        if config.telemetryTranscripts {
+            Telemetry.event(shown, name: "sayit2.transcript.live", span: span, unified: false)
+            Telemetry.event(text, name: "sayit2.transcript.final", span: span, unified: false)
+        }
+        endSpan(reason: problem == nil ? "completed" : "failed", text: text, problem: problem)
         onEnd?(problem)
+    }
+
+    private func endSpan(reason: String, text: String, problem: String?) {
+        span.setAttribute(key: "sayit2.audio.seconds", value: Double(captured) / 2 / provider.sampleRate)
+        span.setAttribute(key: "sayit2.text.characters", value: text.count)
+        span.setAttribute(key: "sayit2.text.words", value: text.split(whereSeparator: \.isWhitespace).count)
+        span.setAttribute(key: "sayit2.end_reason", value: reason)
+        span.setAttribute(key: "sayit2.attempts", value: attempts)
+        if let finishedMono {
+            span.setAttribute(key: "sayit2.finish.seconds", value: Double(DispatchTime.now().uptimeNanoseconds - finishedMono) / 1e9)
+        }
+        if let lang = Usage.language(of: text) { span.setAttribute(key: "sayit2.language", value: lang) }
+        if let problem {
+            span.setAttribute(key: "error.type", value: problem)
+            span.status = .error(description: problem)
+        } else {
+            span.status = .ok
+        }
+        span.end()
+        Telemetry.flush()
     }
 
     private func close() {

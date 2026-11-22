@@ -71,11 +71,11 @@ final class ChatGPTStream: Transcriber {
         case "session.error":
             let code = (message["error"] as? [String: Any])?["code"] as? String ?? message["code"] as? String ?? "unknown"
             let fatal = message["fatal"] as? Bool == true
-            log.notice("ChatGPT session error: \(code, privacy: .public), fatal \(fatal, privacy: .public)")
+            Telemetry.event("ChatGPT session error: \(code), fatal \(fatal)", span: span)
             if fatal || !ready { end(Problem(message: "ChatGPT error")) }
         case "transcript.failed":
             let code = (message["error"] as? [String: Any])?["code"] as? String ?? "unknown"
-            log.notice("ChatGPT transcript failed: \(code, privacy: .public)")
+            Telemetry.event("ChatGPT transcript failed: \(code)", span: span)
             end(Problem(message: "ChatGPT could not transcribe"))
         default:
             break

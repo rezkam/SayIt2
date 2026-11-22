@@ -60,7 +60,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             },
         ]
         started = Date()
-        log.notice("recording from the \(Self.kind(of: device), privacy: .public) microphone")
+        Telemetry.event("recording from the \(Self.kind(of: device)) microphone")
         queue.async { [session] in session.startRunning() }   // can take a moment; keep the main thread free
     }
 
@@ -79,7 +79,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             recover(because: "Microphone not responding")
         } else if let silentSince, now.timeIntervalSince(silentSince) > 2, !warnedSilent {
             warnedSilent = true
-            log.notice("microphone silent")
+            Telemetry.event("microphone silent")
             onNotice?("Microphone is muted or silent")
         }
     }
@@ -112,7 +112,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// default. Gives up after two attempts in one dictation.
     private func recover(because reason: String) {
         recoveries += 1
-        log.notice("\(reason, privacy: .public), recovery \(self.recoveries)")
+        Telemetry.event("\(reason), recovery \(self.recoveries)")
         guard recoveries <= 2 else {
             onInterrupted?()
             return
@@ -124,7 +124,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         queue.async { [self] in
             session.stopRunning()
             if let fallback, fallback != current, (try? use(fallback)) != nil {
-                log.notice("switched to the system default: \(Self.kind(of: fallback), privacy: .public)")
+                Telemetry.event("switched to the system default: \(Self.kind(of: fallback))")
             }
             session.startRunning()
         }
