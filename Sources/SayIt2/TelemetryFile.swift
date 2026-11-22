@@ -5,17 +5,40 @@ import OpenTelemetrySdk
 /// Serial queue for all telemetry encoding, file appends, rotation, and usage updates.
 let telemetryQueue = DispatchQueue(label: "sayit2.telemetry", qos: .utility)
 
-/// Appends one OTLP/JSON line per export to `<dir>/<name>.jsonl`, rotating at 10 MB (keeping 5).
+/// Appends one OTLP/JSON line per export to `<dir>/<name>.jsonl` (rotating at 10 MB, keeping 5)
+/// and optionally POSTs the same OTLP/JSON payload to a configured OTLP/HTTP endpoint.
 final class OtelFileWriter: @unchecked Sendable {
     private let directory: URL
     private let maxBytes: off_t = 10 * 1024 * 1024
+    private var endpoint: String?
+    private var authorization: String?
+    private let session: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 10
+        cfg.timeoutIntervalForResource = 15
+        return URLSession(configuration: cfg)
+    }()
+
     init(directory: URL) { self.directory = directory }
 
-    func append(_ payload: [String: Any], to name: String) {
+    func configure(endpoint: String?, authorization: String?) {
+        let clean = endpoint?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         telemetryQueue.async { [self] in
-            guard JSONSerialization.isValidJSONObject(payload),
-                  var data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
+            self.endpoint = (clean?.isEmpty == false) ? clean : nil
+            self.authorization = (authorization?.isEmpty == false) ? authorization : nil
+        }
+    }
+
+    func append(_ payload: [String: Any], to name: String, writeFile: Bool = true, sendRemote: Bool = true) {
+        telemetryQueue.async { [self] in
+            let shouldSend = sendRemote && endpoint != nil
+            guard writeFile || shouldSend,
+                  JSONSerialization.isValidJSONObject(payload),
+                  let json = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .withoutEscapingSlashes])
             else { return }
+            if shouldSend { post(json, signal: name) }
+            guard writeFile else { return }
+            var data = json
             data.append(0x0A)
             if !FileManager.default.fileExists(atPath: directory.path) {
                 try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -43,6 +66,16 @@ final class OtelFileWriter: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private func post(_ data: Data, signal: String) {
+        guard let endpoint, let url = URL(string: "\(endpoint)/v1/\(signal)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authorization { req.setValue(authorization, forHTTPHeaderField: "Authorization") }
+        req.httpBody = data
+        session.dataTask(with: req).resume()
     }
 
     func drain() { telemetryQueue.sync {} }
@@ -111,8 +144,16 @@ final class FileSpanExporter: SpanExporter, @unchecked Sendable {
 
 final class FileMetricExporter: MetricExporter, @unchecked Sendable {
     private let writer: OtelFileWriter
-    init(writer: OtelFileWriter) { self.writer = writer }
-    func getAggregationTemporality(for instrument: InstrumentType) -> AggregationTemporality { .delta }
+    private let temporality: AggregationTemporality
+    private let writeFile: Bool
+    private let sendRemote: Bool
+    init(writer: OtelFileWriter, temporality: AggregationTemporality = .delta, writeFile: Bool = true, sendRemote: Bool = false) {
+        self.writer = writer
+        self.temporality = temporality
+        self.writeFile = writeFile
+        self.sendRemote = sendRemote
+    }
+    func getAggregationTemporality(for instrument: InstrumentType) -> AggregationTemporality { temporality }
     func flush() -> ExportResult { writer.drain(); return .success }
     func shutdown() -> ExportResult { writer.drain(); return .success }
 
@@ -134,7 +175,8 @@ final class FileMetricExporter: MetricExporter, @unchecked Sendable {
         }
         guard !encoded.isEmpty else { return .success }
         writer.append(["resourceMetrics": [["resource": ["attributes": OtlpJson.attrs(first.resource.attributes)],
-            "scopeMetrics": [["scope": OtlpJson.scope(first.instrumentationScopeInfo), "metrics": encoded]]]]], to: "metrics")
+            "scopeMetrics": [["scope": OtlpJson.scope(first.instrumentationScopeInfo), "metrics": encoded]]]]],
+            to: "metrics", writeFile: writeFile, sendRemote: sendRemote)
         return .success
     }
 

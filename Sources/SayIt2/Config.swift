@@ -30,6 +30,9 @@ struct Config {
     var deepgramParameters: [URLQueryItem] = []
     /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
     var telemetryTranscripts = false
+    /// Optional OTLP/HTTP JSON base endpoint (e.g. Grafana Cloud) and Authorization header.
+    var telemetryEndpoint: String?
+    var telemetryAuthorization: String?
 
     var deepgramModel: String { deepgramParameters.first { $0.name == "model" }?.value ?? "nova-3" }
 
@@ -53,6 +56,10 @@ struct Config {
                 if !value.isEmpty { config.deepgramURL = value }
             } else if key == "telemetry.transcripts" {
                 config.telemetryTranscripts = value.lowercased() == "true"
+            } else if key == "telemetry.otlp.endpoint" {
+                config.telemetryEndpoint = value.isEmpty ? nil : value
+            } else if key == "telemetry.otlp.authorization" {
+                config.telemetryAuthorization = value.isEmpty ? nil : value
             } else if key.hasPrefix("deepgram."), !value.isEmpty, fixed[String(key.dropFirst(9))] == nil {
                 config.deepgramParameters.append(URLQueryItem(name: String(key.dropFirst(9)), value: value))
             }
@@ -176,6 +183,10 @@ struct Config {
     # When true, the exact provider messages and the final text are written to
     # ~/.local/share/sayit2/otel/logs.jsonl for debugging; off by default.
     # telemetry.transcripts = false
+    # Optional OTLP/HTTP JSON endpoint (such as Grafana Cloud) to also send traces,
+    # metrics, and logs. Leave unset to keep telemetry local only.
+    # telemetry.otlp.endpoint = https://otlp-gateway-example.grafana.net/otlp
+    # telemetry.otlp.authorization = Basic ...
 
     """
 }

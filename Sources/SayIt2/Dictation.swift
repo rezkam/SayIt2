@@ -55,6 +55,7 @@ final class Dictation {
         guard let job = typist.begin() else { throw Problem(message: "No app to type into") }
         self.job = job
 
+        Telemetry.configure(config)
         let span = Telemetry.startSpan("sayit2.dictation")
         span.setAttribute(key: "gen_ai.provider.name", value: config.provider.rawValue)
         if config.provider == .deepgram { span.setAttribute(key: "gen_ai.request.model", value: config.deepgramModel) }

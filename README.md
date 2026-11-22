@@ -44,7 +44,7 @@ the menu. Saved changes apply to the next dictation.
 ## Telemetry and usage
 
 SayIt2 writes local telemetry and daily usage counters under `~/.local/share/sayit2/`.
-Nothing leaves your Mac.
+Nothing leaves your Mac unless you configure an OTLP endpoint.
 
 - `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` holds OpenTelemetry traces, metrics,
   and logs in OTLP/JSON Lines format (each file rotates at 10 MB, keeping 5 archives).
@@ -52,8 +52,12 @@ Nothing leaves your Mac.
   words, and characters, broken down by model, language, hour of day, trigger mode, and target
   app bundle ID.
 - No audio is ever saved. Transcript text and raw provider messages are omitted by default; set
-  `telemetry.transcripts = true` in `~/.config/sayit2/config` to write them to
-  `~/.local/share/sayit2/otel/logs.jsonl` for debugging.
+  `telemetry.transcripts = true` in `~/.config/sayit2/config` to include them in the OTel log
+  stream for debugging.
+- To also ship traces, cumulative metrics, and logs to an OTLP/HTTP backend such as Grafana
+  Cloud, set `telemetry.otlp.endpoint` and `telemetry.otlp.authorization` in
+  `~/.config/sayit2/config` (applies on the next dictation). If `telemetry.transcripts = true`
+  is also set, those log records are sent to the configured endpoint too.
 
 Example with `jq` to print audio seconds per day per model:
 

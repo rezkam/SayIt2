@@ -11,6 +11,7 @@ final class Telemetry: @unchecked Sendable {
     private static let shared = Telemetry()
     private static let osLog = os.Logger(subsystem: "sayit2", category: "app")
 
+    private let writer: OtelFileWriter
     private let tracerProvider: TracerProviderSdk
     private let meterProvider: MeterProviderSdk
     private let logProcessor: SimpleLogRecordProcessor
@@ -19,13 +20,18 @@ final class Telemetry: @unchecked Sendable {
 
     private init() {
         let dir = Self.dataDirectory
-        let writer = OtelFileWriter(directory: dir.appendingPathComponent("otel"))
+        writer = OtelFileWriter(directory: dir.appendingPathComponent("otel"))
         let resource = Self.makeResource()
-        let reader = PeriodicMetricReaderBuilder(exporter: FileMetricExporter(writer: writer)).setInterval(timeInterval: 60).build()
+        // Local files use delta temporality; remote OTLP/HTTP (e.g. Grafana Cloud) uses cumulative.
+        let localReader = PeriodicMetricReaderBuilder(exporter: FileMetricExporter(writer: writer, temporality: .delta, writeFile: true, sendRemote: false))
+            .setInterval(timeInterval: 60).build()
+        let remoteReader = PeriodicMetricReaderBuilder(exporter: FileMetricExporter(writer: writer, temporality: .cumulative, writeFile: false, sendRemote: true))
+            .setInterval(timeInterval: 60).build()
         meterProvider = MeterProviderSdk.builder()
             .setResource(resource: resource)
             .registerView(selector: InstrumentSelector.builder().setInstrument(name: ".*").build(), view: View.builder().build())
-            .registerMetricReader(reader: reader)
+            .registerMetricReader(reader: localReader)
+            .registerMetricReader(reader: remoteReader)
             .build()
         tracerProvider = TracerProviderBuilder().with(resource: resource)
             .add(spanProcessor: SpanMetricsProcessor(meter: meterProvider.get(name: "sayit2"), usageDirectory: dir))
@@ -37,7 +43,11 @@ final class Telemetry: @unchecked Sendable {
         logger = loggerProvider.get(instrumentationScopeName: "sayit2")
     }
 
-    static func start() { _ = shared }
+    static func start() { configure(Config.load()) }
+
+    static func configure(_ config: Config) {
+        shared.writer.configure(endpoint: config.telemetryEndpoint, authorization: config.telemetryAuthorization)
+    }
 
     static func startSpan(_ name: String, parent: Span? = nil, kind: SpanKind = .internal) -> Span {
         let builder = shared.tracer.spanBuilder(spanName: name).setSpanKind(spanKind: kind)

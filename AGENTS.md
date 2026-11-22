@@ -30,7 +30,9 @@ dictation in the ChatGPT desktop app.
 6. **Silent and private.** No sounds. No clipboard use. No audio history. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
-   is set in the config, only to `~/.local/share/sayit2/otel/logs.jsonl`. These files never leave the Mac.
+   is set in the config, into the OTel log stream (`~/.local/share/sayit2/otel/logs.jsonl`).
+   Telemetry stays local unless `telemetry.otlp.endpoint` is set in the config, in which case
+   traces, metrics, and logs are also posted over OTLP/HTTP JSON to that endpoint.
    Never write keys or personal data anywhere but the config file, the shared ChatGPT sign-in
    file, and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
@@ -51,9 +53,9 @@ dictation in the ChatGPT desktop app.
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
   update key in the login Keychain (Sparkle account `sayit2`).
-- Local telemetry through the OpenTelemetry Swift SDK (`opentelemetry-swift-core`, in
-  `Telemetry.swift`, `TelemetryFile.swift`, and `Usage.swift`), written locally only; see
-  Telemetry and usage records below.
+- Telemetry through the OpenTelemetry Swift SDK (`opentelemetry-swift-core`, in
+  `Telemetry.swift`, `TelemetryFile.swift`, and `Usage.swift`), written locally and optionally
+  sent over OTLP/HTTP JSON; see Telemetry and usage records below.
 
 **Hotkey**
 - Right Option is the only shortcut. Hold to dictate, release to finish. Double-tap for
@@ -109,7 +111,10 @@ dictation in the ChatGPT desktop app.
   `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept).
 - Daily usage in `~/.local/share/sayit2/usage_stats.json` (per day, by model, language, hour,
   trigger, and app; never pruned).
-- Local only: nothing is sent anywhere.
+- Local by default: nothing is sent anywhere unless `telemetry.otlp.endpoint` (and optional
+  `telemetry.otlp.authorization`) is set in `~/.config/sayit2/config`, in which case traces,
+  cumulative metrics, and logs are also POSTed as OTLP/HTTP JSON (local `metrics.jsonl` stays
+  delta).
 - Instrumentation lives in the `Dictation` and `Transcriber` base class spans plus the one
   `Telemetry.event` helper, and metrics and usage are derived from ended spans, so new
   measurements are added in one place.
