@@ -97,17 +97,14 @@ enum Credentials {
                 : Problem(message: "Could not lock the ChatGPT sign-in", retryable: false)
         }
         defer { close(fd) }
-        var locked = false
         for _ in 0..<50 {   // the ChatGPT app or codex may be renewing at the same moment
             if flock(fd, LOCK_EX | LOCK_NB) == 0 {
-                locked = true
-                break
+                defer { flock(fd, LOCK_UN) }
+                return try body()
             }
             try await Task.sleep(for: .milliseconds(100))
         }
-        guard locked else { throw Problem(message: "Could not lock the ChatGPT sign-in") }
-        defer { flock(fd, LOCK_UN) }
-        return try body()
+        throw Problem(message: "Could not lock the ChatGPT sign-in")
     }
 
     private static func readAuth() throws -> (root: [String: Any], tokens: [String: Any], access: String, refresh: String) {

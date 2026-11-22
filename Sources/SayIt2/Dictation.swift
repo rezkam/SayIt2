@@ -58,7 +58,7 @@ final class Dictation {
             self.onLevel?(level)
         }
         mic.onInterrupted = { [weak self] in
-            guard let self, self.isRecording, !self.ended else { return }
+            guard let self, self.isRecording else { return }
             self.onNotice?("Microphone lost")
             self.stop()
         }
@@ -84,7 +84,7 @@ final class Dictation {
 
     /// The user finished speaking: close the microphone and wait for the remaining text.
     func stop() {
-        guard isRecording, !ended else { return }
+        guard isRecording else { return }
         isRecording = false
         onStopped?()
         // The end of the last word is still travelling through the audio buffers when the key
@@ -107,12 +107,7 @@ final class Dictation {
     }
 
     private func connect() {
-        let stream: Transcriber
-        if provider == .chatgpt {
-            stream = ChatGPTStream()
-        } else {
-            stream = DeepgramStream(config: config)
-        }
+        let stream: Transcriber = provider == .chatgpt ? ChatGPTStream() : DeepgramStream(config: config)
         self.stream = stream
         sent = 0
         trimmed = 0
@@ -149,13 +144,14 @@ final class Dictation {
     /// Runs every 40 ms: sends audio, notices a dead connection, and enforces the limits.
     private func tick() {
         if capturing { mic.checkHealth() }
-        if isRecording {
+        if isRecording, !handsFree {
             // Safety net for a missed release event in hold mode. It only acts once it has
             // seen the key reported as down, so it can never end a recording by mistake.
-            let keyDown = CGEventSource.keyState(.combinedSessionState, key: Hotkey.keyCode)
-            let keyReleased = !handsFree && sawKeyDown && !keyDown
-            sawKeyDown = sawKeyDown || keyDown
-            if keyReleased { stop() }
+            if CGEventSource.keyState(.combinedSessionState, key: Hotkey.keyCode) {
+                sawKeyDown = true
+            } else if sawKeyDown {
+                stop()
+            }
         }
         guard let stream else { return }
         // Dead connection: no sign of life for 5 s, not even the answer to a ping.

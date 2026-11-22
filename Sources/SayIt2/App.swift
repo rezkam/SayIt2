@@ -14,8 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let updates = Updates()
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
-    private var trusted = false
-    private var checkedOnce = false
+    private var trusted: Bool?
 
     private var recording: Dictation? { dictations.last { $0.isRecording } }
 
@@ -34,7 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onStop = { [weak self] in self?.recording?.stop() }
         hotkey.onCancel = { [weak self] in self?.recording?.cancel() }
         typist.onChange = { [weak self] in self?.refresh() }
-        indicator.onMessageEnd = { [weak self] in self?.refresh() }
         updates.onChange = { [weak self] in self?.refresh() }
         updates.start()
 
@@ -49,12 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func checkAccessibility() {
         let now = AXIsProcessTrusted()
-        guard now != trusted || !checkedOnce else { return }
+        guard now != trusted else { return }
         let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         log.notice("accessibility \(now, privacy: .public), microphone \(microphone, privacy: .public)")
         if now { hotkey.install() }
         trusted = now
-        checkedOnce = true
         refresh()
     }
 
@@ -119,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// What the user needs to fix before dictation can work, if anything.
     private var attention: String? {
-        if !trusted { return "Grant Accessibility Access…" }
+        if trusted != true { return "Grant Accessibility Access…" }
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
         let config = Config.load()
         if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in the config" }
@@ -135,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?", build = info?["CFBundleVersion"] as? String ?? "?"
         if let available = updates.available {
-            menu.addItem(withTitle: "Update to SayIt2 \(available)…", action: #selector(Updates.check), keyEquivalent: "").target = updates
+            menu.addItem(withTitle: "Update to SayIt2 \(available)…", action: #selector(Updates.check), keyEquivalent: "")
             menu.addItem(.separator())
         }
         menu.addItem(withTitle: "SayIt2  \(version) (build \(build))", action: nil, keyEquivalent: "")
@@ -144,12 +141,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let config = Config.load()
         for provider in Provider.allCases {
             let item = menu.addItem(withTitle: provider.title, action: #selector(chooseProvider(_:)), keyEquivalent: "")
-            item.representedObject = provider.rawValue
+            item.representedObject = provider
             item.state = provider == config.provider ? .on : .off
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
-        if !trusted {
+        if trusted != true {
             menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(openAccessibility), keyEquivalent: "")
         }
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
@@ -166,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func chooseProvider(_ item: NSMenuItem) {
-        guard let name = item.representedObject as? String, let provider = Provider(rawValue: name) else { return }
+        guard let provider = item.representedObject as? Provider else { return }
         if !Config.set("provider", to: provider.rawValue) { indicator.flash("Config file could not be read") }
         refresh()
     }
@@ -191,12 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Redraws the menu bar icon while recording, so its bars follow the voice like the pill's.
     private func animateIcon() {
-        guard recording != nil else {
-            iconTimer?.invalidate()
-            iconTimer = nil
-            iconEnergy = 0
-            return
-        }
+        guard recording != nil else { return refresh() }
         iconEnergy += (CGFloat(indicator.level) - iconEnergy) * 0.4
         let time = CACurrentMediaTime()
         let rates: [Double] = [5.1, 7.3, 6.2, 8.4], phases: [Double] = [0, 1.3, 2.1, 0.6]

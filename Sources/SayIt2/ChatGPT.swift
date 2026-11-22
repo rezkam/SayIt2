@@ -92,6 +92,6 @@ final class ChatGPTStream: Transcriber {
 
     private func send(json: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-        send(text: String(decoding: data, as: UTF8.self))
+        send(.string(String(decoding: data, as: UTF8.self)))
     }
 }

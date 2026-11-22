@@ -112,8 +112,9 @@ final class Typist {
         Task {
             while !jobs.isEmpty {
                 guard let job = nextJob() else {
-                    setWaiting(jobs.contains { $0.text != nil })
-                    try? await Task.sleep(for: .milliseconds(jobs.contains { $0.text != nil } ? 150 : 15))
+                    let waiting = jobs.contains { $0.text != nil }
+                    setWaiting(waiting)
+                    try? await Task.sleep(for: .milliseconds(waiting ? 150 : 15))
                     continue
                 }
                 setWaiting(false)
@@ -121,9 +122,15 @@ final class Typist {
                     jobs.removeAll { $0 === job }
                     continue
                 }
-                let chunk = Self.chunk(text[job.sent...])
-                post(chunk.flatMap { Array(String($0).utf16) })
-                job.sent += chunk.count
+                // Pack as many scalars as fit in 20 UTF-16 units, the safe size for one key event.
+                var units: [UniChar] = []
+                while job.sent < text.count {
+                    let utf16 = text[job.sent].utf16
+                    if units.count + utf16.count > 20 { break }
+                    units.append(contentsOf: utf16)
+                    job.sent += 1
+                }
+                post(units)
                 try? await Task.sleep(for: .milliseconds(2))
             }
             running = false
@@ -138,9 +145,8 @@ final class Typist {
         var blocked: Set<pid_t> = []
         for job in jobs {
             relocate(job)
-            guard !blocked.contains(job.app) else { continue }
-            blocked.insert(job.app)
-            if job.text != nil, job.sent == job.text?.count || Self.isFocused(job) { return job }
+            guard blocked.insert(job.app).inserted else { continue }
+            if let text = job.text, job.sent == text.count || Self.isFocused(job) { return job }
         }
         return nil
     }
@@ -159,18 +165,6 @@ final class Typist {
         guard isWaiting != waiting else { return }
         isWaiting = waiting
         onChange?()
-    }
-
-    /// The next scalars to send: as many as fit in 20 UTF-16 units, the safe size for one key event.
-    private static func chunk(_ scalars: ArraySlice<Unicode.Scalar>) -> [Unicode.Scalar] {
-        var result: [Unicode.Scalar] = []
-        var units = 0
-        for scalar in scalars {
-            units += String(scalar).utf16.count
-            if units > 20 { break }
-            result.append(scalar)
-        }
-        return result
     }
 
     /// Posts one key press carrying the text. Modifier flags are cleared so a held Right Option

@@ -11,23 +11,23 @@ final class DeepgramStream: Transcriber {
     }
 
     override func request() throws -> URLRequest {
-        guard var url = URLComponents(string: config.deepgramURL) else {
+        var url = URLComponents(string: config.deepgramURL)
+        url?.queryItems = config.deepgramParameters
+        guard let address = url?.url else {
             throw Problem(message: "Deepgram url in the config is not valid", retryable: false)
         }
-        url.queryItems = config.deepgramParameters
-        guard let address = url.url else { throw Problem(message: "Deepgram url in the config is not valid", retryable: false) }
         var request = URLRequest(url: address)
         request.setValue("Token \(config.deepgramKey ?? "")", forHTTPHeaderField: "Authorization")
         return request
     }
 
     override func send(audio: Data) {
-        send(data: audio)
+        send(.data(audio))
     }
 
     override func finish() {
         finishing = true
-        send(text: #"{"type":"CloseStream"}"#)
+        send(.string(#"{"type":"CloseStream"}"#))
     }
 
     override func received(_ message: [String: Any]) {

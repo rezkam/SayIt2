@@ -65,16 +65,11 @@ class Transcriber {
 
     func end(_ problem: Problem?) {
         guard !ended else { return }
-        ended = true
-        pinger?.cancel()
-        task?.cancel()
+        cancel()
         onEnd?(problem)
     }
 
-    func send(text: String) { send(.string(text)) }
-    func send(data: Data) { send(.data(data)) }
-
-    private func send(_ message: URLSessionWebSocketTask.Message) {
+    func send(_ message: URLSessionWebSocketTask.Message) {
         task?.send(message) { [weak self] error in
             guard error != nil else { return }
             Task { @MainActor in self?.failed() }

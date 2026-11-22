@@ -7,13 +7,10 @@ final class Indicator {
 
     /// Voice level, 0...1.
     var level: Float = 0
-    /// Called when a problem message has finished showing.
-    var onMessageEnd: (() -> Void)?
 
     private let panel: NSPanel
     private let view = PillView()
     private var timer: Timer?
-    private var energy: CGFloat = 0
     private var isShown = false
 
     init() {
@@ -28,9 +25,8 @@ final class Indicator {
     }
 
     func show(_ state: State) {
-        guard view.message == nil else { return view.state = state }
         view.state = state
-        update()
+        if view.message == nil { update() }
     }
 
     /// The live words. Long text wraps; only the newest lines are shown.
@@ -48,7 +44,6 @@ final class Indicator {
             guard let self, self.view.message == message else { return }
             self.view.message = nil
             self.update()
-            self.onMessageEnd?()
         }
     }
 
@@ -86,7 +81,7 @@ final class Indicator {
         isShown = false
         timer?.invalidate()
         level = 0
-        energy = 0
+        view.energy = 0
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.15
             panel.animator().setFrame(panel.frame.offsetBy(dx: 0, dy: -(panel.frame.height + 12)), display: true)
@@ -101,20 +96,17 @@ final class Indicator {
     }
 
     private func animate() {
-        energy += (CGFloat(level) - energy) * 0.35
-        view.energy = energy
-        view.time = CACurrentMediaTime()
+        view.energy += (CGFloat(level) - view.energy) * 0.35
         view.needsDisplay = true
     }
 }
 
 /// Draws the pill: five voice bars, the live words (or a problem message), and a square while hands-free.
 private final class PillView: NSView {
-    var state: Indicator.State = .hidden { didSet { if state != oldValue { invalidateText() } } }
-    var text = "" { didSet { if text != oldValue { invalidateText() } } }
-    var message: String? { didSet { if message != oldValue { invalidateText() } } }
+    var state: Indicator.State = .hidden { didSet { if state != oldValue { cachedText = nil } } }
+    var text = "" { didSet { if text != oldValue { cachedText = nil } } }
+    var message: String? { didSet { if message != oldValue { cachedText = nil } } }
     var energy: CGFloat = 0
-    var time: CFTimeInterval = 0
 
     private let lineHeight: CGFloat = 30, padding: CGFloat = 12, gap: CGFloat = 8, vertical: CGFloat = 7
     private let barWidth: CGFloat = 3, barGap: CGFloat = 2.5, square: CGFloat = 9
@@ -124,25 +116,17 @@ private final class PillView: NSView {
     private lazy var persianFont: NSFont = {
         let descriptor = NSFontDescriptor(fontAttributes: [.family: "Vazirmatn", .traits: [NSFontDescriptor.TraitKey.weight: NSFont.Weight.medium]])
         guard let vazirmatn = NSFont(descriptor: descriptor, size: 13), vazirmatn.familyName == "Vazirmatn" else {
-            return NSFont.systemFont(ofSize: 13, weight: .medium)
+            return font
         }
         return vazirmatn
     }()
     private let layoutManager = NSLayoutManager()
-    private var layoutDirty = true
     private var cachedText: (text: NSAttributedString, size: NSSize)?
     private var barsWidth: CGFloat { 5 * barWidth + 4 * barGap }
 
-    private func invalidateText() {
-        layoutDirty = true
-        cachedText = nil
-    }
-
     private func currentText() -> (text: NSAttributedString, size: NSSize)? {
-        if layoutDirty {
-            layoutDirty = false
-            cachedText = computeText()
-        }
+        if let cachedText { return cachedText }
+        cachedText = computeText()
         return cachedText
     }
 
@@ -223,6 +207,7 @@ private final class PillView: NSView {
         pill.lineWidth = 0.5
         pill.stroke()
 
+        let time = CACurrentMediaTime()
         let rates: [Double] = [5.1, 7.3, 6.2, 8.4, 5.7], phases: [Double] = [0, 1.3, 2.1, 0.6, 2.9]
         for index in 0..<5 {
             var amount: CGFloat = 0, alpha: CGFloat = 1
