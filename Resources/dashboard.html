@@ -459,6 +459,7 @@
         <button type="button" data-sub="providers" class="active">Providers</button>
         <button type="button" data-sub="deepgram">Deepgram</button>
         <button type="button" data-sub="elevenlabs">ElevenLabs</button>
+        <button type="button" data-sub="vocabulary">Vocabulary</button>
         <button type="button" data-sub="telemetry">Telemetry</button>
       </div>
     </div>
@@ -477,7 +478,7 @@
             </div>
             <div class="muted">
               Uses the sign-in shared with the ChatGPT desktop app and codex (<code>~/.codex/auth.json</code>).
-              SayIt2 renews expired tokens automatically. Nothing to configure.
+              SayIt2 renews expired tokens automatically. See Vocabulary for optional local replacements.
             </div>
           </button>
           <button type="button" class="provider-card" id="card-deepgram" data-provider="deepgram">
@@ -608,12 +609,14 @@
         </div>
         <div class="form-grid">
           <div class="field">
-            <label for="f-dg-keyterm">Keyterms (<code>deepgram.keyterm</code>)</label>
-            <textarea id="f-dg-keyterm" data-lines-key="deepgram.keyterm" placeholder="One term per line (names, product terms, jargon)"></textarea>
+            <label for="f-dg-keyterm">Vocabulary Hints (<code>deepgram.keyterm</code>)</label>
+            <textarea id="f-dg-keyterm" data-lines-key="deepgram.keyterm" placeholder="One term per line (names, product terms, acronyms)"></textarea>
+            <span class="hint">Sent to Deepgram Nova-3 to bias recognition. A hint is not a replacement.</span>
           </div>
           <div class="field">
-            <label for="f-dg-replace">Replacements (<code>deepgram.replace</code>)</label>
-            <textarea id="f-dg-replace" data-lines-key="deepgram.replace" placeholder="say it:SayIt"></textarea>
+            <label for="f-dg-replace">Deepgram Server Replacements (<code>deepgram.replace</code>)</label>
+            <textarea id="f-dg-replace" data-lines-key="deepgram.replace" placeholder="example term:Example Term"></textarea>
+            <span class="hint">Sent to Deepgram. Use Vocabulary for rules applied on this Mac instead.</span>
           </div>
           <div class="field wide">
             <label for="f-dg-extra">Other <code>deepgram.*</code> Parameters</label>
@@ -660,7 +663,7 @@
           <label class="field">First-Chunk Context<input data-key="elevenlabs.previous_text" placeholder="Optional short context">
             <span class="hint">Sent to ElevenLabs with the first audio chunk. Keep it under 50 characters. Reconnects prefer the preceding transcript.</span>
           </label>
-          <label class="field wide">Transcript Editing Instruction
+          <label class="field wide">ElevenLabs Server Editing Instruction
             <input data-key="elevenlabs.transcript_edit" maxlength="2000" placeholder="Write dates in ISO 8601 format">
             <span class="hint">Experimental, billed separately. Cannot be combined with entity detection or redaction.</span>
           </label>
@@ -676,8 +679,8 @@
           <label class="field">Audio Format<input type="text" value="PCM16 · 16 kHz · Mono" readonly>
             <span class="hint">Fixed to match the audio SayIt2 captures. The native app authenticates with your API key, not a browser token.</span>
           </label>
-          <label class="field">Keyterms<textarea data-lines-key="elevenlabs.keyterms" placeholder="One term per line"></textarea>
-            <span class="hint">Up to 50 terms, 1,000 characters in total. Extra provider cost.</span>
+          <label class="field">Vocabulary Hints<textarea data-lines-key="elevenlabs.keyterms" placeholder="One term per line"></textarea>
+            <span class="hint">Sent to ElevenLabs to bias recognition, not replace it. Up to 50 terms, 1,000 characters total. Extra provider cost.</span>
           </label>
           <label class="field">Keyterm Library<textarea data-lines-key="elevenlabs.keyterm_library" placeholder="One term per line"></textarea>
             <span class="hint">Scribe v3 Live. Up to 10,000 terms, 50 characters each, 2 MB total. Extra provider cost.</span>
@@ -696,7 +699,27 @@
           <label class="toggle-row">Include Speaker Labels in Provider Events (v3 Live)<input type="checkbox" data-bool-key="elevenlabs.diarize"></label>
           <label class="toggle-row">Infer Speaker Names (needs speaker labels; incompatible with redaction)<input type="checkbox" data-bool-key="elevenlabs.infer_speaker_names"></label>
           <label class="toggle-row">Allow ElevenLabs Logging (off requests enterprise zero retention)<input type="checkbox" data-bool-key="elevenlabs.enable_logging" data-default="true"></label>
-          <label class="toggle-row">Fix Misplaced Full Stops (SayIt2): 。 to . in Latin or Arabic-script text<input type="checkbox" data-bool-key="elevenlabs.normalize_full_stops" data-default="true"></label>
+        </div>
+      </div>
+    </div>
+
+    <div id="cfg-vocabulary">
+      <div class="panel">
+        <div class="panel-head"><h2>VOCABULARY <span class="accent">&amp; REPLACEMENTS</span></h2></div>
+        <div class="form-grid">
+          <div class="field wide">
+            <p><strong>Vocabulary hints</strong> help a provider recognize terms but do not guarantee the spelling.</p>
+            <p class="hint">Find them in Deepgram and ElevenLabs. SayIt2's signed-in ChatGPT stream has no verified hint setting.</p>
+            <div class="row">
+              <button type="button" class="btn" data-settings-link="deepgram">Deepgram Hints</button>
+              <button type="button" class="btn" data-settings-link="elevenlabs">ElevenLabs Hints</button>
+            </div>
+          </div>
+          <label class="field wide">Local Replacements for All Providers
+            <textarea data-lines-key="text.replace" placeholder="example term => Example Term"></textarea>
+            <span class="hint">Empty means no replacements. One case-sensitive rule per line: Find =&gt; Replace. Words match whole words, and punctuation can match anywhere.</span>
+            <span class="hint">Rules change only the finished text. They are not sent to the provider and do not change what you see while speaking.</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1193,6 +1216,7 @@ async function pollStats() {
 // --- Wiring ---
 document.querySelectorAll(".nav-tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 document.querySelectorAll("#settings-sub-seg button").forEach(b => b.onclick = () => setSettingsSub(b.dataset.sub));
+document.querySelectorAll("[data-settings-link]").forEach(b => b.onclick = () => setSettingsSub(b.dataset.settingsLink));
 document.querySelectorAll("#metric-seg button").forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll("#metric-seg button").forEach(b => b.classList.remove("active"));

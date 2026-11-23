@@ -92,11 +92,11 @@ dictation in the ChatGPT desktop app.
 
 **Text**
 - While speaking, the live words are shown only in the pill. Nothing touches the text field.
-- When done, the provider's final text is inserted once, as the provider returned it
-  (punctuation kept). ElevenLabs alone normalizes a misplaced ideographic full stop in
-  Latin or Arabic-script text by default, excluding segments with East Asian script. This
-  is configurable, applies to the pill too, and leaves raw provider events unchanged. The
-  final text always wins over the live text.
+- When done, the provider's final text is inserted once and wins over the live text. SayIt2
+  preserves punctuation and makes no automatic substitutions. The optional local rules in
+  Settings → Vocabulary apply to all providers and affect only the final text. No rules are
+  enabled by default, and the rules themselves are never sent to a provider. Provider hints
+  and server-side editing are separate and labeled in the provider settings.
 - Insertion uses Unicode key events, never the clipboard, and goes to the text field that had
   focus when dictation started. If focus is elsewhere, it waits until that field is back, with
   no time limit. If that field no longer exists, it inserts into whatever field of the app has

@@ -83,6 +83,38 @@ struct Config {
         }
         return items
     }
+    private var replacements: [String] = []
+
+    /// Apply user rules once to the finished text, not to provider events or retry context.
+    func replaceInFinalText(_ text: String) -> String {
+        guard !replacements.isEmpty, !text.isEmpty else { return text }
+        var values: [String: String] = [:]
+        var patterns: [String] = []
+        func wordEdge(_ character: Character?) -> Bool {
+            guard let character else { return false }
+            return character.isLetter || character.isNumber || character == "_"
+        }
+        let word = #"[\p{L}\p{M}\p{N}\p{Pc}\u200C\u200D]"#
+        for rule in replacements {
+            guard let arrow = rule.range(of: "=>") else { continue }
+            let from = rule[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
+            let to = rule[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard !from.isEmpty, !to.isEmpty, values[from] == nil else { continue }
+            values[from] = to
+            let prefix = wordEdge(from.first) ? "(?<!\(word))" : ""
+            let suffix = wordEdge(from.last) ? "(?!\(word))" : ""
+            patterns.append(prefix + NSRegularExpression.escapedPattern(for: from) + suffix)
+        }
+        guard !patterns.isEmpty, let pattern = try? NSRegularExpression(pattern: patterns.joined(separator: "|")) else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let original = text as NSString
+        let output = NSMutableString(string: text)
+        for match in pattern.matches(in: text, range: range).reversed() {
+            if let to = values[original.substring(with: match.range)] { output.replaceCharacters(in: match.range, with: to) }
+        }
+        return output as String
+    }
+
     /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
     var telemetryTranscripts = false
     /// Optional OTLP/HTTP JSON base endpoint (e.g. Grafana Cloud) and Authorization header.
@@ -101,6 +133,8 @@ struct Config {
         for (key, value) in entries((try? String(contentsOf: file, encoding: .utf8)) ?? "") {
             if key == "provider" {
                 config.provider = Provider(rawValue: value) ?? config.provider
+            } else if key == "text.replace" {
+                config.replacements.append(value)
             } else if key == "telemetry.transcripts" {
                 config.telemetryTranscripts = value.lowercased() == "true"
             } else if key == "telemetry.otlp.endpoint" {
@@ -173,8 +207,14 @@ struct Config {
     provider = chatgpt
 
     # ---------- ChatGPT ----------
-    # Uses the sign-in of the ChatGPT desktop app on this Mac. Nothing to set.
-    # The text is inserted exactly as ChatGPT returns it.
+    # Uses the sign-in of the ChatGPT desktop app on this Mac. The signed-in stream
+    # has no verified vocabulary hint option. Use the optional local rules below.
+
+    # ---------- Local replacements for all providers ----------
+    # No rules by default. One literal, case-sensitive rule per line. Words and phrases
+    # match at word edges, punctuation can match anywhere. If rules overlap at the same
+    # position, the first listed wins. Rules do not run again on their own output.
+    # text.replace = example term => Example Term
 
     # ---------- Deepgram ----------
     deepgram.api_key =
@@ -262,8 +302,6 @@ struct Config {
     # Optional first-chunk context sent to ElevenLabs. Keep it under 50 characters.
     # elevenlabs.previous_text = example context
     # elevenlabs.no_verbatim = true
-    # Local only: replace U+3002 with a period in Latin or Arabic-script text.
-    # elevenlabs.normalize_full_stops = true
     # Defaults to manual. Also accepts vad and turn_prediction. If an automatic stream
     # disconnects after recognizing a committed segment, it inserts its text without replay.
     # elevenlabs.commit_strategy = manual

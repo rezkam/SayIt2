@@ -15,7 +15,6 @@ final class ElevenLabsStream: Transcriber {
     private let previousText: String
     private var initialContext = ""
     private var keytermLibrary: [String] = []
-    private var normalizeFullStops = true
     private var ready = false
     private var automatic = false
     private var replacementEvent: String?
@@ -53,7 +52,6 @@ final class ElevenLabsStream: Transcriber {
         let keyterms = options.filter { $0.name == "keyterms" }.compactMap(\.value)
         keytermLibrary = options.filter { $0.name == "keyterm_library" }.compactMap(\.value)
         initialContext = previousText.isEmpty ? (value("previous_text") ?? "") : previousText
-        normalizeFullStops = value("normalize_full_stops")?.lowercased() != "false"
         guard ["manual", "vad", "turn_prediction"].contains(strategy), (edit?.count ?? 0) <= 2000 else {
             throw invalid("Check the ElevenLabs commit strategy and editing instruction")
         }
@@ -84,7 +82,7 @@ final class ElevenLabsStream: Transcriber {
         }
         automatic = strategy != "manual"
         replacementEvent = redact ? "redacted_transcript" : edit != nil ? "edited_transcript" : nil
-        let local = ["keyterm_library", "previous_text", "normalize_full_stops", "token"]
+        let local = ["keyterm_library", "previous_text", "token"]
         let query = options.filter { !local.contains($0.name) }
         if redact { logTranscripts = false }
         var url = URLComponents(string: config.url(for: .elevenlabs))
@@ -222,20 +220,12 @@ final class ElevenLabsStream: Transcriber {
             let withheld = redacting && !segment.original.isEmpty && segment.replacement == nil
             if withheld { missedRedaction = true }
             let output = segment.replacement ?? (withheld ? "[redaction unavailable]" : segment.original)
-            onFinal?(displayText(output), segment.covered ?? lastCommit)
+            onFinal?(output, segment.covered ?? lastCommit)
         }
         let live = redacting
             ? segments.map { $0.replacement ?? ($0.original.isEmpty ? "" : "[redacting…]") } + (partial.isEmpty ? [] : ["[redacting…]"])
             : segments.map { $0.replacement ?? $0.original } + [partial]
-        onInterim?(live.filter { !$0.isEmpty }.map(displayText).joined(separator: " "))
-    }
-
-    private func displayText(_ text: String) -> String {
-        // Match replacements against raw provider text first. Leave East Asian and mixed scripts alone.
-        guard normalizeFullStops, text.contains("。"),
-              text.range(of: #"[[\p{Latin}\p{Arabic}]&&\p{L}]"#, options: .regularExpression) != nil,
-              text.range(of: #"[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}\p{Bopomofo}\p{Yi}]"#, options: .regularExpression) == nil else { return text }
-        return text.replacingOccurrences(of: "。", with: ".")
+        onInterim?(live.filter { !$0.isEmpty }.joined(separator: " "))
     }
 
     override func end(_ problem: Problem?) {

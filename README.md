@@ -35,9 +35,9 @@ Everything is stored in one plain text file, `~/.config/sayit2/config`. Open **S
 file directly. Saved changes apply on the next dictation.
 
 - **ChatGPT** uses the sign-in shared by the ChatGPT desktop app and codex on this Mac
-  (`~/.codex/auth.json`), so there is nothing to set. SayIt2 renews it when it expires and
-  saves it back there. This is a private interface and may stop working. Text is inserted exactly
-  as ChatGPT returns it.
+  (`~/.codex/auth.json`). SayIt2 renews it when it expires and saves it back there. This is a
+  private interface and may stop working. Its vocabulary hint support is not verified. The
+  separate OpenAI transcription API's `keywords` setting is not sent to this interface.
 - **Deepgram** needs `deepgram.api_key`. Every other `deepgram.*` line is passed to Deepgram's
   live streaming API as a parameter (model, language, formatting, key terms and so on); the
   file lists them all with a short explanation.
@@ -55,10 +55,17 @@ file directly. Saved changes apply on the next dictation.
   keyterms, and metadata. Leave the primary language blank for automatic detection; set it
   to `en` for English or `fa` for Persian if you want one language. Use multilingual mode
   on Scribe v3 Live when switching languages within one dictation. `no_verbatim` removes
-  fillers and disfluencies; it is not a punctuation control. SayIt2 fixes Scribe's misplaced
-  `。` by default in Latin or Arabic-script text, leaving East Asian and mixed East Asian
-  text alone. Turn off **Fix Misplaced Full Stops** to keep raw punctuation. Provider-side
-  logging is separate from local telemetry; zero retention may require an enterprise plan.
+  fillers and disfluencies; it is not a punctuation control. SayIt2 does not automatically
+  replace Scribe's punctuation. Provider-side logging is separate from local telemetry;
+  zero retention may require an enterprise plan.
+
+**Settings → Vocabulary** separates provider hints from local replacements. Deepgram Nova-3
+and ElevenLabs accept hints for terms you'd like them to recognize. Hints are not guarantees.
+Provider-side edits, such as Deepgram's `replace` and ElevenLabs' `transcript_edit`, are labeled
+in their provider tabs. For any provider, set a local `text.replace = example term => Example Term`
+rule in Vocabulary or the config file. There are no default rules. Matching is literal and
+case-sensitive, uses whole-word edges for words, and applies once to the final text only.
+The rules themselves are not sent to any provider.
 
 ## Telemetry and usage
 

@@ -252,7 +252,7 @@ final class Dictation {
         guard !ended else { return }
         close()
         // After a failure, insert the best text received so far rather than losing the speech.
-        let text = problem != nil && catchingUp ? shown : currentText
+        let text = config.replaceInFinalText(problem != nil && catchingUp ? shown : currentText)
         let seconds = Double(captured) / 2 / provider.sampleRate
         Telemetry.event("dictation finished: \(String(format: "%.1f", seconds)) s of audio, \(text.count) characters", span: span)
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
