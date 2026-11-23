@@ -1,9 +1,8 @@
 import Foundation
-import OpenTelemetryApi
 
 /// One streaming connection to a provider. Subclasses describe the provider's messages.
 @MainActor
-class Transcriber {
+class Transcriber: NSObject, URLSessionWebSocketDelegate {
     /// Text that may still change. Replaces the previous interim text.
     var onInterim: ((String) -> Void)?
     /// Text that will not change, and how many audio bytes of this connection it covers.
@@ -30,6 +29,7 @@ class Transcriber {
     private var task: URLSessionWebSocketTask?
     private var pinger: Task<Void, Never>?
     private var ended = false
+    private var sawOpen = false
     private var sawMessage = false
     private var sawText = false
     private var spanEnded = false
@@ -62,6 +62,7 @@ class Transcriber {
             let req = try request()
             if let host = req.url?.host { span?.setAttribute(key: "server.address", value: host) }
             let task = URLSession.shared.webSocketTask(with: req)
+            task.delegate = self
             self.task = task
             task.resume()
             opened()
@@ -129,6 +130,17 @@ class Transcriber {
                 }
                 self.receive()
             }
+        }
+    }
+
+    /// The WebSocket handshake finished; timed the same way for every provider.
+    nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        let now = Date()
+        Task { @MainActor in
+            guard !self.sawOpen, !self.spanEnded else { return }
+            self.sawOpen = true
+            self.span?.setAttribute(key: "sayit2.stream.connect.seconds", value: now.timeIntervalSince(self.startedAt))
+            self.span?.addEvent(name: "connected")
         }
     }
 

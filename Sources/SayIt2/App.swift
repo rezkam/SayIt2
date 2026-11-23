@@ -20,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var recording: Dictation? { dictations.last { $0.isRecording } }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Telemetry.start()
         // Vazirmatn (SIL Open Font License) draws Persian words in the pill.
         if let font = Bundle.main.url(forResource: "Vazirmatn", withExtension: "ttf") {
             CTFontManagerRegisterFontsForURL(font as CFURL, .process, nil)
@@ -47,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        Telemetry.flush(wait: true)
+        Telemetry.flush()
     }
 
     private func checkAccessibility() {

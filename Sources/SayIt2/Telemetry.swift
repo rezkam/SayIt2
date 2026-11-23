@@ -1,87 +1,216 @@
 import Foundation
-import OpenTelemetryApi
-import OpenTelemetrySdk
 import os
 
-/// Local OpenTelemetry setup (traces, metrics, logs) and the single `event` helper.
+/// Local OpenTelemetry-compatible traces, derived delta metrics, logs, and daily usage rollup.
+/// Zero external telemetry SDKs and zero network calls: everything stays under ~/.local/share/sayit2/.
+
+enum AttributeValue: Sendable {
+    case string(String), bool(Bool), int(Int), double(Double)
+}
+
+enum SpanKind: Int, Sendable {
+    case `internal` = 1, server = 2, client = 3
+}
+
+enum SpanStatus: Sendable {
+    case unset, ok, error(description: String)
+}
+
+enum Severity: Int, Sendable {
+    case info = 9, warn = 13, error = 17
+    var text: String { switch self { case .info: "INFO"; case .warn: "WARN"; case .error: "ERROR" } }
+}
+
+struct SpanEvent: Sendable {
+    let timestamp: Date
+    let name: String
+    let attributes: [String: AttributeValue]
+}
+
+struct SpanRecord: Sendable {
+    let traceId: String
+    let spanId: String
+    let parentSpanId: String?
+    let name: String
+    let kind: SpanKind
+    let startTime: Date
+    let endTime: Date
+    let attributes: [String: AttributeValue]
+    let events: [SpanEvent]
+    let status: SpanStatus
+}
+
+final class Span: @unchecked Sendable {
+    let traceId: String
+    let spanId: String
+    let parentSpanId: String?
+    let name: String
+    let kind: SpanKind
+    let startTime = Date()
+
+    private let lock = NSLock()
+    private var attributes: [String: AttributeValue] = [:]
+    private var events: [SpanEvent] = []
+    private var _status: SpanStatus = .unset
+    private var ended = false
+    private let onEnd: (SpanRecord) -> Void
+
+    init(name: String, parent: Span?, kind: SpanKind, onEnd: @escaping (SpanRecord) -> Void) {
+        self.traceId = parent?.traceId ?? Self.randomHex(bytes: 16)
+        self.spanId = Self.randomHex(bytes: 8)
+        self.parentSpanId = parent?.spanId
+        self.name = name
+        self.kind = kind
+        self.onEnd = onEnd
+    }
+
+    var status: SpanStatus {
+        get { lock.withLock { _status } }
+        set { lock.withLock { _status = newValue } }
+    }
+
+    func setAttribute(key: String, value: String) { lock.withLock { attributes[key] = .string(value) } }
+    func setAttribute(key: String, value: Int) { lock.withLock { attributes[key] = .int(value) } }
+    func setAttribute(key: String, value: Double) { lock.withLock { attributes[key] = .double(value) } }
+    func setAttribute(key: String, value: Bool) { lock.withLock { attributes[key] = .bool(value) } }
+
+    func addEvent(name: String, attributes: [String: AttributeValue] = [:]) {
+        lock.withLock { events.append(SpanEvent(timestamp: Date(), name: name, attributes: attributes)) }
+    }
+
+    func end() {
+        let record: SpanRecord? = lock.withLock {
+            guard !ended else { return nil }
+            ended = true
+            return SpanRecord(traceId: traceId, spanId: spanId, parentSpanId: parentSpanId, name: name,
+                              kind: kind, startTime: startTime, endTime: Date(),
+                              attributes: attributes, events: events, status: _status)
+        }
+        if let record { onEnd(record) }
+    }
+
+    private static func randomHex(bytes: Int) -> String {
+        (0..<bytes).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+    }
+}
+
 final class Telemetry: @unchecked Sendable {
     /// Overridable output root; defaults to ~/.local/share/sayit2.
     static var dataDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/sayit2")
 
     private static let shared = Telemetry()
     private static let osLog = os.Logger(subsystem: "sayit2", category: "app")
+    static let durationBounds: [Double] = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600]
 
+    private let dir: URL
     private let writer: OtelFileWriter
-    private let tracerProvider: TracerProviderSdk
-    private let meterProvider: MeterProviderSdk
-    private let logProcessor: SimpleLogRecordProcessor
-    private let tracer: Tracer
-    private let logger: OpenTelemetryApi.Logger
+    private let resource: [String: AttributeValue]
 
-    private init() {
-        let dir = Self.dataDirectory
-        writer = OtelFileWriter(directory: dir.appendingPathComponent("otel"))
-        let resource = Self.makeResource()
-        // Local files use delta temporality; remote OTLP/HTTP (e.g. Grafana Cloud) uses cumulative.
-        let localReader = PeriodicMetricReaderBuilder(exporter: FileMetricExporter(writer: writer, temporality: .delta, writeFile: true, sendRemote: false))
-            .setInterval(timeInterval: 60).build()
-        let remoteReader = PeriodicMetricReaderBuilder(exporter: FileMetricExporter(writer: writer, temporality: .cumulative, writeFile: false, sendRemote: true))
-            .setInterval(timeInterval: 60).build()
-        meterProvider = MeterProviderSdk.builder()
-            .setResource(resource: resource)
-            .registerView(selector: InstrumentSelector.builder().setInstrument(name: ".*").build(), view: View.builder().build())
-            .registerMetricReader(reader: localReader)
-            .registerMetricReader(reader: remoteReader)
-            .build()
-        tracerProvider = TracerProviderBuilder().with(resource: resource)
-            .add(spanProcessor: SpanMetricsProcessor(meter: meterProvider.get(name: "sayit2"), usageDirectory: dir))
-            .add(spanProcessor: SimpleSpanProcessor(spanExporter: FileSpanExporter(writer: writer)))
-            .build()
-        logProcessor = SimpleLogRecordProcessor(logRecordExporter: FileLogExporter(writer: writer))
-        let loggerProvider = LoggerProviderBuilder().with(resource: resource).with(processors: [logProcessor]).build()
-        tracer = tracerProvider.get(instrumentationName: "sayit2")
-        logger = loggerProvider.get(instrumentationScopeName: "sayit2")
+    private enum Rule {
+        case duration(String), count(String), attrDouble(String, String), attrInt(String, String)
     }
 
-    static func start() { configure(Config.load()) }
+    private static let metricRules: [String: (keys: [String], rules: [Rule])] = [
+        "sayit2.dictation": (
+            keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language", "error.type"],
+            rules: [
+                .duration("sayit2.dictation.duration"),
+                .count("sayit2.dictation.count"),
+                .attrDouble("sayit2.audio.seconds", "sayit2.audio.duration"),
+                .attrDouble("sayit2.finish.seconds", "sayit2.finish.duration"),
+                .attrInt("sayit2.text.characters", "sayit2.text.characters"),
+                .attrInt("sayit2.text.words", "sayit2.text.words"),
+            ]
+        ),
+        "sayit2.stream": (
+            keys: ["gen_ai.provider.name", "gen_ai.request.model", "server.address", "error.type"],
+            rules: [
+                .duration("sayit2.stream.duration"),
+                .count("sayit2.stream.count"),
+                .attrDouble("sayit2.stream.connect.seconds", "sayit2.stream.connect.duration"),
+                .attrDouble("sayit2.stream.first_text.seconds", "sayit2.stream.first_text.duration"),
+            ]
+        ),
+        "sayit2.insert": (
+            keys: ["sayit2.insert.waited"],
+            rules: [
+                .duration("sayit2.insert.duration"),
+                .count("sayit2.insert.count"),
+                .attrDouble("sayit2.insert.wait.seconds", "sayit2.insert.wait.duration"),
+            ]
+        ),
+        "sayit2.auth.renew": (
+            keys: ["error.type"],
+            rules: [
+                .duration("sayit2.auth.renew.duration"),
+                .count("sayit2.auth.renew.count"),
+            ]
+        ),
+    ]
 
-    static func configure(_ config: Config) {
-        shared.writer.configure(endpoint: config.telemetryEndpoint, authorization: config.telemetryAuthorization)
+    private init() {
+        dir = Self.dataDirectory
+        writer = OtelFileWriter(directory: dir.appendingPathComponent("otel"))
+        resource = Self.makeResource()
     }
 
     static func startSpan(_ name: String, parent: Span? = nil, kind: SpanKind = .internal) -> Span {
-        let builder = shared.tracer.spanBuilder(spanName: name).setSpanKind(spanKind: kind)
-        if let parent { builder.setParent(parent) } else { builder.setNoParent() }
-        return builder.startSpan()
+        Span(name: name, parent: parent, kind: kind) { record in
+            shared.recordSpan(record)
+        }
     }
 
-    /// Writes to both the unified log (unless disabled) and the OTel log stream.
+    /// Writes to both the unified log (unless disabled) and the local OTel log stream.
     static func event(_ message: String, name: String? = nil, severity: Severity = .info,
                       span: Span? = nil, attributes: [String: AttributeValue] = [:], unified: Bool = true) {
         if unified {
-            if severity.rawValue >= Severity.error.rawValue { osLog.error("\(message, privacy: .public)") }
-            else if severity.rawValue >= Severity.warn.rawValue { osLog.warning("\(message, privacy: .public)") }
-            else { osLog.notice("\(message, privacy: .public)") }
+            switch severity {
+            case .error: osLog.error("\(message, privacy: .public)")
+            case .warn: osLog.warning("\(message, privacy: .public)")
+            case .info: osLog.notice("\(message, privacy: .public)")
+            }
         }
-        var builder = shared.logger.logRecordBuilder().setTimestamp(Date()).setSeverity(severity).setBody(.string(message))
-        if let name { builder = builder.setEventName(name) }
-        if let span { builder = builder.setSpanContext(span.context) }
-        if !attributes.isEmpty { builder = builder.setAttributes(attributes) }
-        builder.emit()
+        let payload = OtlpJson.log(message: message, name: name, severity: severity,
+                                   traceId: span?.traceId, spanId: span?.spanId,
+                                   attributes: attributes, resource: shared.resource, time: Date())
+        shared.writer.append(payload, to: "logs")
     }
 
-    /// Flushes spans, metrics, and logs off the main actor.
-    static func flush(wait: Bool = false) {
-        let work = {
-            shared.tracerProvider.forceFlush()
-            _ = shared.meterProvider.forceFlush()
-            _ = shared.logProcessor.forceFlush()
-            telemetryQueue.sync {}
+    /// Waits for queued telemetry writes; called when the app quits.
+    static func flush() { telemetryQueue.sync {} }
+
+    private func recordSpan(_ span: SpanRecord) {
+        writer.append(OtlpJson.span(span, resource: resource), to: "traces")
+        if let entry = Self.metricRules[span.name] {
+            var attrs: [String: AttributeValue] = [:]
+            for k in entry.keys { if let v = span.attributes[k] { attrs[k] = v } }
+            var metrics: [[String: Any]] = []
+            for rule in entry.rules {
+                switch rule {
+                case .duration(let name):
+                    let s = span.endTime.timeIntervalSince(span.startTime)
+                    if s.isFinite { metrics.append(OtlpJson.histogram(name: name, value: max(0, s), unit: "s", bounds: Self.durationBounds, attrs: attrs, start: span.startTime, end: span.endTime)) }
+                case .count(let name):
+                    metrics.append(OtlpJson.counter(name: name, value: 1, attrs: attrs, start: span.startTime, end: span.endTime))
+                case .attrDouble(let k, let name):
+                    if case .double(let v) = span.attributes[k], v.isFinite {
+                        metrics.append(OtlpJson.histogram(name: name, value: max(0, v), unit: "s", bounds: Self.durationBounds, attrs: attrs, start: span.startTime, end: span.endTime))
+                    }
+                case .attrInt(let k, let name):
+                    if case .int(let v) = span.attributes[k], v > 0 {
+                        metrics.append(OtlpJson.counter(name: name, value: v, attrs: attrs, start: span.startTime, end: span.endTime))
+                    }
+                }
+            }
+            if !metrics.isEmpty { writer.append(OtlpJson.metrics(metrics, resource: resource), to: "metrics") }
         }
-        if wait { work() } else { DispatchQueue.global(qos: .utility).async(execute: work) }
+        if span.parentSpanId == nil, span.name == "sayit2.dictation" {
+            let dir = self.dir
+            telemetryQueue.async { Usage.record(span, in: dir) }
+        }
     }
 
-    private static func makeResource() -> Resource {
+    private static func makeResource() -> [String: AttributeValue] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         #if arch(arm64)
         let arch = "arm64"
@@ -90,97 +219,12 @@ final class Telemetry: @unchecked Sendable {
         #else
         let arch = "unknown"
         #endif
-        return Resource(attributes: [
+        return [
             "service.name": .string("sayit2"),
             "service.version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"),
             "service.build": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"),
             "os.version": .string("\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
             "host.arch": .string(arch),
-        ])
-    }
-}
-
-/// Derives metrics from ended spans via one table, and records root dictations into Usage.
-private final class SpanMetricsProcessor: SpanProcessor, @unchecked Sendable {
-    private enum Rule {
-        case duration(DoubleHistogramMeterSdk), count(LongCounterSdk)
-        case attrDouble(String, DoubleHistogramMeterSdk), attrInt(String, LongCounterSdk)
-    }
-
-    private static let durationBounds: [Double] = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600]
-
-    let isStartRequired = false, isEndRequired = true
-    private let usageDirectory: URL
-    private let table: [String: (keys: [String], rules: [Rule])]
-
-    init(meter: MeterSdk, usageDirectory: URL) {
-        self.usageDirectory = usageDirectory
-        let histogram: (String) -> DoubleHistogramMeterSdk = {
-            meter.histogramBuilder(name: $0).setUnit("s").setExplicitBucketBoundariesAdvice(Self.durationBounds).build()
-        }
-        self.table = [
-            "sayit2.dictation": (
-                keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language", "error.type"],
-                rules: [
-                    .duration(histogram("sayit2.dictation.duration")),
-                    .count(meter.counterBuilder(name: "sayit2.dictation.count").build()),
-                    .attrDouble("sayit2.audio.seconds", histogram("sayit2.audio.duration")),
-                    .attrDouble("sayit2.finish.seconds", histogram("sayit2.finish.duration")),
-                    .attrInt("sayit2.text.characters", meter.counterBuilder(name: "sayit2.text.characters").build()),
-                    .attrInt("sayit2.text.words", meter.counterBuilder(name: "sayit2.text.words").build()),
-                ]
-            ),
-            "sayit2.stream": (
-                keys: ["gen_ai.provider.name", "gen_ai.request.model", "server.address", "error.type"],
-                rules: [
-                    .duration(histogram("sayit2.stream.duration")),
-                    .count(meter.counterBuilder(name: "sayit2.stream.count").build()),
-                    .attrDouble("sayit2.stream.first_text.seconds", histogram("sayit2.stream.first_text.duration")),
-                ]
-            ),
-            "sayit2.insert": (
-                keys: ["sayit2.insert.waited"],
-                rules: [
-                    .duration(histogram("sayit2.insert.duration")),
-                    .count(meter.counterBuilder(name: "sayit2.insert.count").build()),
-                    .attrDouble("sayit2.insert.wait.seconds", histogram("sayit2.insert.wait.duration")),
-                ]
-            ),
-            "sayit2.auth.renew": (
-                keys: ["error.type"],
-                rules: [
-                    .duration(histogram("sayit2.auth.renew.duration")),
-                    .count(meter.counterBuilder(name: "sayit2.auth.renew.count").build()),
-                ]
-            ),
         ]
-    }
-
-    func onStart(parentContext: SpanContext?, span: ReadableSpan) {}
-    func shutdown(explicitTimeout: TimeInterval?) {}
-    func forceFlush(timeout: TimeInterval?) {}
-
-    func onEnd(span: ReadableSpan) {
-        let data = span.toSpanData()
-        if let entry = table[data.name] {
-            var attrs: [String: AttributeValue] = [:]
-            for k in entry.keys { if let v = data.attributes[k] { attrs[k] = v } }
-            for rule in entry.rules {
-                switch rule {
-                case .duration(let h):
-                    let s = data.endTime.timeIntervalSince(data.startTime)
-                    if s.isFinite { h.record(value: max(0, s), attributes: attrs) }
-                case .count(let c): c.add(value: 1, attributes: attrs)
-                case .attrDouble(let k, let h):
-                    if case .double(let v) = data.attributes[k], v.isFinite { h.record(value: max(0, v), attributes: attrs) }
-                case .attrInt(let k, let c):
-                    if case .int(let v) = data.attributes[k], v > 0 { c.add(value: v, attributes: attrs) }
-                }
-            }
-        }
-        if data.parentSpanId == nil, data.name == "sayit2.dictation" {
-            let dir = usageDirectory
-            telemetryQueue.async { Usage.record(data, in: dir) }
-        }
     }
 }

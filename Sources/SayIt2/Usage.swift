@@ -1,6 +1,4 @@
 import Foundation
-import OpenTelemetryApi
-import OpenTelemetrySdk
 
 /// Daily usage counters in ~/.local/share/sayit2/usage_stats.json, updated on `telemetryQueue`.
 enum Usage {
@@ -38,7 +36,7 @@ enum Usage {
     }
 
     /// Updates usage_stats.json from one ended root dictation span. Must run on `telemetryQueue`.
-    static func record(_ span: SpanData, in directory: URL) {
+    static func record(_ span: SpanRecord, in directory: URL) {
         let file = directory.appendingPathComponent("usage_stats.json")
         var store: Store
         if FileManager.default.fileExists(atPath: file.path) {

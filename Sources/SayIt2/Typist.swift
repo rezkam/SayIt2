@@ -1,6 +1,5 @@
 import AppKit
 import ApplicationServices
-import OpenTelemetryApi
 
 /// Marks key events SayIt2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
@@ -153,7 +152,6 @@ final class Typist {
                         if job.relaunched { span.setAttribute(key: "sayit2.insert.relaunched", value: true) }
                         span.status = .ok
                         span.end()
-                        Telemetry.flush()
                     }
                     jobs.removeAll { $0 === job }
                     continue

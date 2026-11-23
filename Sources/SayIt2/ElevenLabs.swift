@@ -1,5 +1,4 @@
 import Foundation
-import OpenTelemetryApi
 
 /// Scribe sends a base commit first, then optional timestamps and text transformations.
 @MainActor

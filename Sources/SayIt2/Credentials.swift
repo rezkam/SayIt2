@@ -1,5 +1,4 @@
 import Foundation
-import OpenTelemetryApi
 
 /// The ChatGPT sign-in shared with the ChatGPT desktop app and the codex command line tool,
 /// stored in ~/.codex/auth.json. SayIt2 renews it itself when it has expired, and saves the

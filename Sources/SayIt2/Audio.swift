@@ -1,5 +1,4 @@
 import AVFoundation
-import OpenTelemetryApi
 
 /// Microphone capture, delivered as mono PCM16 at the provider's rate, with a health watch that
 /// keeps the recording going when the device misbehaves.

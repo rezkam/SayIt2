@@ -1,5 +1,4 @@
 import AppKit
-import OpenTelemetryApi
 
 /// One recording, from the key press until its final text is handed to the typist.
 /// Live text only goes to the pill; the text field receives the final text once, at the end.
@@ -56,7 +55,6 @@ final class Dictation {
         self.handsFree = handsFree
         self.typist = typist
 
-        Telemetry.configure(config)
         let span = Telemetry.startSpan("sayit2.dictation")
         span.setAttribute(key: "gen_ai.provider.name", value: config.provider.rawValue)
         if let model = config.model(for: config.provider) { span.setAttribute(key: "gen_ai.request.model", value: model) }
@@ -105,7 +103,6 @@ final class Dictation {
         span.setAttribute(key: "error.type", value: problem.errorType ?? problem.message)
         span.status = .error(description: problem.message)
         span.end()
-        Telemetry.flush()
         return problem
     }
 
@@ -339,7 +336,6 @@ final class Dictation {
             span.status = .ok
         }
         span.end()
-        Telemetry.flush()
     }
 
     private func close() {

@@ -117,9 +117,6 @@ struct Config {
 
     /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
     var telemetryTranscripts = false
-    /// Optional OTLP/HTTP JSON base endpoint (e.g. Grafana Cloud) and Authorization header.
-    var telemetryEndpoint: String?
-    var telemetryAuthorization: String?
 
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
 
@@ -137,10 +134,6 @@ struct Config {
                 config.replacements.append(value)
             } else if key == "telemetry.transcripts" {
                 config.telemetryTranscripts = value.lowercased() == "true"
-            } else if key == "telemetry.otlp.endpoint" {
-                config.telemetryEndpoint = value.isEmpty ? nil : value
-            } else if key == "telemetry.otlp.authorization" {
-                config.telemetryAuthorization = value.isEmpty ? nil : value
             } else if let dot = key.firstIndex(of: "."), let provider = Provider(rawValue: String(key[..<dot])), provider != .chatgpt {
                 let name = String(key[key.index(after: dot)...])
                 if name == "api_key" {
@@ -330,10 +323,7 @@ struct Config {
     # When true, the exact provider messages and the final text are written to
     # ~/.local/share/sayit2/otel/logs.jsonl for debugging; off by default.
     # telemetry.transcripts = false
-    # Optional OTLP/HTTP JSON endpoint (such as Grafana Cloud) to also send traces,
-    # metrics, and logs. Leave unset to keep telemetry local only.
-    # telemetry.otlp.endpoint = https://otlp-gateway-example.grafana.net/otlp
-    # telemetry.otlp.authorization = Basic ...
+    # Traces, metrics, and logs always stay on this Mac; the dashboard's Performance tab reads them.
 
     """
 }

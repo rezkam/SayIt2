@@ -18,7 +18,7 @@ dictation in the ChatGPT desktop app.
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,350 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,300 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -33,8 +33,7 @@ dictation in the ChatGPT desktop app.
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
    is set in the config, into the OTel log stream (`~/.local/share/sayit2/otel/logs.jsonl`).
-   Telemetry stays local unless `telemetry.otlp.endpoint` is set in the config, in which case
-   traces, metrics, and logs are also posted over OTLP/HTTP JSON to that endpoint.
+   Telemetry never leaves the Mac: there is no exporter and no telemetry network call.
    Never write keys or personal data anywhere but the config file, the shared ChatGPT sign-in
    file, and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
@@ -55,9 +54,9 @@ dictation in the ChatGPT desktop app.
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
   update key in the login Keychain (Sparkle account `sayit2`).
-- Telemetry through the OpenTelemetry Swift SDK (`opentelemetry-swift-core`, in
-  `Telemetry.swift`, `TelemetryFile.swift`, and `Usage.swift`), written locally and optionally
-  sent over OTLP/HTTP JSON; see Telemetry and usage records below.
+- Telemetry without an SDK: `Telemetry.swift` (spans, derived metrics, logs),
+  `TelemetryFile.swift` (OTLP/JSON encoding and file rotation), and `Usage.swift`, all local;
+  see Telemetry and usage records below.
 
 **Hotkey**
 - Right Option is the only shortcut. Hold to dictate, release to finish. Double-tap for
@@ -127,24 +126,25 @@ dictation in the ChatGPT desktop app.
   a clean idle state with a short message in the pill.
 
 **Telemetry and usage records**
-- OpenTelemetry traces, metrics, and logs as OTLP/JSON Lines in
-  `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept).
+- OpenTelemetry-shaped traces, delta metrics, and logs as OTLP/JSON Lines in
+  `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept), so the
+  files stay readable by `jq` and any OTLP tool.
 - Daily usage in `~/.local/share/sayit2/usage_stats.json` (per day, by model, language, hour,
   trigger, and app; never pruned).
 - **Dashboard…** and **Settings…** in the menu start a loopback-only HTTP server
   (`Dashboard.swift`, on `127.0.0.1` with per-launch token, Host, and Origin checks) serving
-  `Resources/dashboard.html` for live `usage_stats.json` stats and `~/.config/sayit2/config`
-  editing in the default browser.
-- Local by default: nothing is sent anywhere unless `telemetry.otlp.endpoint` (and optional
-  `telemetry.otlp.authorization`) is set in `~/.config/sayit2/config`, in which case traces,
-  cumulative metrics, and logs are also POSTed as OTLP/HTTP JSON (local `metrics.jsonl` stays
-  delta).
+  `Resources/dashboard.html` with three tabs: Stats (live `usage_stats.json`), Performance, and
+  Settings (`~/.config/sayit2/config` editing), in the default browser.
+- The Performance tab compares providers from the local traces, computed in the browser:
+  median and p95 per stage (connect, first words, finish, typing, release to typed), latency
+  distribution and daily trend, reliability and throughput, failures by error type, and recent
+  sessions with a span waterfall and the session's linked logs. The server only serves
+  `traces.jsonl` (all archives) and one trace's log lines; it does not aggregate.
 - Instrumentation covers each dictation end to end under one trace: `sayit2.dictation` (root,
   including start failures and microphone milestones), `sayit2.stream` (per provider attempt,
-  with HTTP status, WebSocket close code, and time to first text), `sayit2.auth.renew` (ChatGPT
+  with HTTP status, WebSocket close code, handshake time, and time to first text), `sayit2.auth.renew` (ChatGPT
   OAuth refresh), and `sayit2.insert` (text insertion and focus wait). Logs carry trace context
-  and severity levels; metrics and usage are derived from ended spans in one table. OTLP export
-  failures log rate-limited warnings to macOS unified logging without re-entering OTel.
+  and severity levels; metrics and usage are derived from ended spans in one table.
 - Telemetry must never block, delay, or fail a dictation.
 
 ## Out of scope

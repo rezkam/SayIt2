@@ -126,6 +126,12 @@ final class Dashboard: @unchecked Sendable {
         case ("GET", "usage_stats.json"):
             serveStats(conn, ifNoneMatch: headers["if-none-match"])
 
+        case ("GET", "traces.jsonl"):
+            serveTelemetry(conn, name: "traces", ifNoneMatch: headers["if-none-match"])
+
+        case ("GET", let path) where path.hasPrefix("logs/"):
+            serveTelemetry(conn, name: "logs", traceId: String(path.dropFirst(5)))
+
         case ("GET", "config"):
             sendConfig(conn)
 
@@ -141,7 +147,6 @@ final class Dashboard: @unchecked Sendable {
                     self.queue.async { self.send(conn, "500 Internal Server Error", "application/json", Data()) }
                     return
                 }
-                Telemetry.configure(Config.load())
                 self.onConfigChange()
                 self.sendConfigOnMain(conn)
             }
@@ -162,6 +167,28 @@ final class Dashboard: @unchecked Sendable {
             }
         }
         send(conn, "200 OK", "application/json; charset=utf-8", Data("{\"schemaVersion\":1,\"days\":{}}".utf8))
+    }
+
+    /// Serves the local OTLP/JSON lines of one signal, oldest archive first, optionally only one trace's lines.
+    private func serveTelemetry(_ conn: NWConnection, name: String, ifNoneMatch: String? = nil, traceId: String? = nil) {
+        if let traceId, traceId.count != 32 || !traceId.allSatisfy(\.isHexDigit) {
+            send(conn, "400 Bad Request", "text/plain", Data()); return
+        }
+        let dir = Telemetry.dataDirectory.appendingPathComponent("otel")
+        var st = stat()
+        let etag = stat(dir.appendingPathComponent("\(name).jsonl").path, &st) == 0
+            ? "\"\(st.st_mtimespec.tv_sec)-\(st.st_mtimespec.tv_nsec)-\(st.st_size)\"" : nil
+        if traceId == nil, let etag, ifNoneMatch == etag { send(conn, "304 Not Modified", nil, Data(), etag: etag); return }
+        var body = Data()
+        for file in (1...5).reversed().map({ "\(name).\($0).jsonl" }) + ["\(name).jsonl"] {
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent(file)) else { continue }
+            guard let traceId else { body.append(data); continue }
+            let needle = Data(traceId.utf8)
+            for line in data.split(separator: 0x0A) where line.range(of: needle) != nil {
+                body.append(line); body.append(0x0A)
+            }
+        }
+        send(conn, "200 OK", "application/x-ndjson; charset=utf-8", body, etag: traceId == nil ? etag : nil)
     }
 
     private func sendConfig(_ conn: NWConnection) {

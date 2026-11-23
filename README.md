@@ -70,23 +70,23 @@ The rules themselves are not sent to any provider.
 ## Telemetry and usage
 
 SayIt2 writes local telemetry and daily usage counters under `~/.local/share/sayit2/`.
-Nothing leaves your Mac unless you configure an OTLP endpoint.
+Nothing is ever sent anywhere.
 
 - `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` holds OpenTelemetry traces
   (`sayit2.dictation`, `sayit2.stream`, `sayit2.auth.renew`, `sayit2.insert`), derived metrics,
   and trace-linked logs with severity levels in OTLP/JSON Lines format (each file rotates at
-  10 MB, keeping 5 archives). OTLP export failures are logged to macOS unified logging only.
+  10 MB, keeping 5 archives).
 - `~/.local/share/sayit2/usage_stats.json` keeps daily totals of recordings, audio seconds,
   words, and characters, broken down by model, language, hour of day, trigger mode, and target
   app bundle ID. Open **Dashboard…** in the menu bar to view a live yearly heatmap, peak hours,
   per-day stats, and settings in your default browser (served on `127.0.0.1` only).
+- The dashboard's **Performance** tab compares ChatGPT, Deepgram, and ElevenLabs from the local
+  traces: median and p95 time to connect, first words, final text, and typing; every session's
+  latency on one chart and a daily trend; success, failure, cancel, and retry rates; failures
+  by error type; and recent sessions with a timeline of each attempt and its logs.
 - No audio is ever saved. Transcript text and raw provider messages are omitted by default; set
   `telemetry.transcripts = true` in `~/.config/sayit2/config` to include them in the OTel log
   stream for debugging.
-- To also ship traces, cumulative metrics, and logs to an OTLP/HTTP backend such as Grafana
-  Cloud, set `telemetry.otlp.endpoint` and `telemetry.otlp.authorization` in
-  `~/.config/sayit2/config` (applies on the next dictation). If `telemetry.transcripts = true`
-  is also set, those log records are sent to the configured endpoint too.
 
 Example with `jq` to print audio seconds per day per model:
 
