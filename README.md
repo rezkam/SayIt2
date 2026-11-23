@@ -30,8 +30,9 @@ Requires Xcode. The first line of the menu shows the version and build number.
 
 ## Settings
 
-Everything is in one text file, `~/.config/sayit2/config`. Open it with **Edit Config…** in
-the menu. Saved changes apply to the next dictation.
+Everything is stored in one plain text file, `~/.config/sayit2/config`. Open **Settings…**
+(`Cmd+,`) in the menu bar to edit settings per provider in your default browser, or edit the
+file directly. Saved changes apply on the next dictation.
 
 - **ChatGPT** uses the sign-in shared by the ChatGPT desktop app and codex on this Mac
   (`~/.codex/auth.json`), so there is nothing to set. SayIt2 renews it when it expires and
@@ -50,8 +51,8 @@ Nothing leaves your Mac unless you configure an OTLP endpoint.
   and logs in OTLP/JSON Lines format (each file rotates at 10 MB, keeping 5 archives).
 - `~/.local/share/sayit2/usage_stats.json` keeps daily totals of recordings, audio seconds,
   words, and characters, broken down by model, language, hour of day, trigger mode, and target
-  app bundle ID. Open **Usage Stats…** in the menu bar to view a live yearly heatmap, peak
-  hours, and per-day stats in your default browser (served on `127.0.0.1` only).
+  app bundle ID. Open **Dashboard…** in the menu bar to view a live yearly heatmap, peak hours,
+  per-day stats, and settings in your default browser (served on `127.0.0.1` only).
 - No audio is ever saved. Transcript text and raw provider messages are omitted by default; set
   `telemetry.transcripts = true` in `~/.config/sayit2/config` to include them in the OTel log
   stream for debugging.

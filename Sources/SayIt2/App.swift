@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
     private let updates = Updates()
-    private let stats = StatsServer()
+    private lazy var dashboard = Dashboard(onConfigChange: { [weak self] in self?.refresh() })
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
     private var trusted: Bool?
@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if trusted != true { return "Grant Accessibility Access…" }
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
         let config = Config.load()
-        if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in the config" }
+        if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in Settings" }
         if config.provider == .chatgpt, !Credentials.hasChatGPTLogin { return "Sign in to ChatGPT (ChatGPT app or codex)" }
         return nil
     }
@@ -143,8 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = provider == config.provider ? .on : .off
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Usage Stats…", action: #selector(openStats), keyEquivalent: "")
-        menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
+        menu.addItem(withTitle: "Dashboard…", action: #selector(openDashboard), keyEquivalent: "")
+        menu.addItem(withTitle: "Settings…", action: #selector(openDashboardSettings), keyEquivalent: ",")
         if trusted != true {
             menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(openAccessibility), keyEquivalent: "")
         }
@@ -167,17 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
-    /// Opens the live usage dashboard in the default browser.
-    @objc private func openStats() { stats.open() }
-
-    /// Opens the settings file in the default text editor.
-    @objc private func editConfig() {
-        _ = Config.load()   // creates the file with every option listed, if it is missing
-        let open = Process()
-        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        open.arguments = ["-t", Config.file.path]
-        try? open.run()
-    }
+    @objc private func openDashboard() { dashboard.open(section: "stats") }
+    @objc private func openDashboardSettings() { dashboard.open(section: "settings") }
 
     @objc private func openAccessibility() { openSettings("Privacy_Accessibility") }
     @objc private func openMicrophone() { openSettings("Privacy_Microphone") }

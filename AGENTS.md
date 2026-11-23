@@ -17,7 +17,7 @@ dictation in the ChatGPT desktop app.
    words recognized so far must reach the text field. Text waits for its field as long as it
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,500 lines; keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,500 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -25,8 +25,9 @@ dictation in the ChatGPT desktop app.
    without asking first. Do not keep something only because an earlier version had it.
 4. **Delete over patch.** When an approach stops being used, remove its code, comments, and
    documentation in the same change. No dead code, no compatibility shims, no leftovers.
-5. **Settings live in one text file.** No settings window. New settings go in
-   `~/.config/sayit2/config`, are explained in its template, and apply on the next dictation.
+5. **Settings live in one text file.** No native AppKit settings window. All settings are stored
+   in `~/.config/sayit2/config`, explained in its template, editable through the local browser
+   dashboard (**Settings…** in the menu) or directly in the file, and apply on the next dictation.
 6. **Silent and private.** No sounds. No clipboard use. No audio history. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
@@ -48,7 +49,7 @@ dictation in the ChatGPT desktop app.
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
 - Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3),
-  Usage Stats…, Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
+  Dashboard…, Settings…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
@@ -111,9 +112,10 @@ dictation in the ChatGPT desktop app.
   `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept).
 - Daily usage in `~/.local/share/sayit2/usage_stats.json` (per day, by model, language, hour,
   trigger, and app; never pruned).
-- **Usage Stats…** in the menu starts a loopback-only HTTP server (`StatsServer.swift`, on
-  `127.0.0.1`) serving `Resources/stats.html` and live `usage_stats.json` updates, and opens it
-  in the default browser.
+- **Dashboard…** and **Settings…** in the menu start a loopback-only HTTP server
+  (`Dashboard.swift`, on `127.0.0.1` with per-launch token, Host, and Origin checks) serving
+  `Resources/dashboard.html` for live `usage_stats.json` stats and `~/.config/sayit2/config`
+  editing in the default browser.
 - Local by default: nothing is sent anywhere unless `telemetry.otlp.endpoint` (and optional
   `telemetry.otlp.authorization`) is set in `~/.config/sayit2/config`, in which case traces,
   cumulative metrics, and logs are also POSTed as OTLP/HTTP JSON (local `metrics.jsonl` stays
@@ -125,7 +127,7 @@ dictation in the ChatGPT desktop app.
 
 ## Out of scope
 
-Local transcription models, batch transcription, voice activity detection, more shortcuts, Escape or Enter handling, settings screens, customization beyond
+Local transcription models, batch transcription, voice activity detection, more shortcuts, Escape or Enter handling, native AppKit settings screens, customization beyond
 the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), launch at login, automated tests, sounds.
 
 ## Measured facts the code relies on

@@ -72,22 +72,40 @@ struct Config {
         return config
     }
 
-    /// Changes only the line for `key` (adding it at the top if it is missing),
-    /// leaving the rest of the file as the user wrote it. Returns false, changing nothing, if the
-    /// file cannot be read: writing then would erase it.
-    static func set(_ key: String, to value: String) -> Bool {
+    /// All active `key = value` pairs in the config file, creating it from the template if missing.
+    static func allEntries() -> [[String]] {
         _ = load()
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
+        return entries((try? String(contentsOf: file, encoding: .utf8)) ?? "").map { [$0.key, $0.value] }
+    }
+
+    static func set(_ key: String, to value: String) -> Bool { update([key: [value]]) }
+
+    /// Updates each key in `changes` in place (an empty array removes its active lines), keeping
+    /// comments and unrelated keys intact. Returns false without writing if the file cannot be read.
+    static func update(_ changes: [String: [String]]) -> Bool {
+        _ = load()
+        let target = file.resolvingSymlinksInPath()
+        guard let text = try? String(contentsOf: target, encoding: .utf8) else { return false }
         var lines = text.components(separatedBy: "\n")
-        let line = "\(key) = \(value)"
-        // The last line for a key is the one `load` ends up using.
-        if let index = lines.lastIndex(where: { entries($0).first?.key == key }) {
-            lines[index] = line
-        } else {
-            lines.insert(line, at: 0)
+        for key in changes.keys.sorted() {
+            let k = key.trimmingCharacters(in: .whitespaces)
+            guard !k.isEmpty, !k.hasPrefix("#"), !k.contains("="), !k.contains(where: \.isNewline) else { continue }
+            let values = (changes[key] ?? [])
+                .map { $0.components(separatedBy: .newlines).joined().trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let index = lines.firstIndex { entries($0).first?.key == k }
+            lines.removeAll { entries($0).first?.key == k }
+            guard !values.isEmpty else { continue }
+            let pos = index ?? (lines.last == "" ? lines.count - 1 : lines.count)
+            lines.insert(contentsOf: values.map { "\(k) = \($0)" }, at: pos)
         }
-        // Not atomic on purpose: that would replace the file and lose its private permissions.
-        return (try? lines.joined(separator: "\n").write(to: file, atomically: false, encoding: .utf8)) != nil
+        let temp = target.deletingLastPathComponent().appendingPathComponent(".config.\(UUID().uuidString).tmp")
+        guard FileManager.default.createFile(atPath: temp.path, contents: Data(lines.joined(separator: "\n").utf8), attributes: [.posixPermissions: 0o600]),
+              rename(temp.path, target.path) == 0 else {
+            try? FileManager.default.removeItem(at: temp)
+            return false
+        }
+        return true
     }
 
     /// `key = value` pairs, skipping blank lines and lines that start with `#`.

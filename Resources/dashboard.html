@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAYIT2 // DASHBOARD</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --panel-2: #1b1b1b;
+    --border: #262626;
+    --border-hi: #383838;
+    --text: #ededed;
+    --muted: #8a8a8a;
+    --yellow: #ffde00;
+    --yellow-soft: rgba(255, 222, 0, 0.10);
+    --yellow-glow: 0 0 18px rgba(255, 222, 0, 0.24);
+    --ok: #22c55e;
+    --danger: #ef4444;
+    --l0: #181818;
+    --l1: #473e00;
+    --l2: #807000;
+    --l3: #bfa600;
+    --l4: #ffde00;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Monaco, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+    background-size: 40px 40px;
+    color: var(--text);
+    font: 13.5px/1.55 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: rgba(14, 14, 14, 0.90);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 222, 0, 0.45);
+    background: var(--yellow-soft);
+    color: var(--yellow);
+    font-weight: 700;
+    font-size: 13px;
+    text-shadow: 0 0 12px rgba(255, 222, 0, 0.45);
+  }
+  .brand-name { font-size: 14px; font-weight: 700; letter-spacing: 0.14em; }
+
+  .nav-tabs, .seg {
+    display: inline-flex;
+    background: #0e0e0e;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .nav-tabs button, .seg button {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+  .seg button { padding: 5px 10px; font-size: 11px; }
+  .nav-tabs button:hover, .seg button:hover { color: var(--text); }
+  .nav-tabs button.active, .seg button.active {
+    background: var(--yellow-soft);
+    color: var(--yellow);
+    border-color: rgba(255, 222, 0, 0.4);
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border-hi);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); }
+  .btn:disabled { opacity: 0.35; cursor: default; }
+  .btn.primary { background: var(--yellow); color: #0a0a0a; border-color: var(--yellow); font-weight: 700; }
+  .btn.primary:hover:not(:disabled) { color: #0a0a0a; box-shadow: var(--yellow-glow); }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+  .live-badge.on { color: var(--yellow); border-color: rgba(255, 222, 0, 0.35); }
+  .live-badge.on .live-dot { background: var(--yellow); animation: statusPulse 2s ease-in-out infinite; }
+  @keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 22px 20px 72px; }
+  .view { display: none; animation: fadeIn 150ms ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .panel {
+    background: linear-gradient(180deg, rgba(24,24,24,0.96) 0%, rgba(16,16,16,0.98) 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 6px 24px rgba(0,0,0,0.42);
+  }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .panel h2 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .accent { color: var(--yellow); }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpis.compact { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi {
+    background: linear-gradient(180deg, #171717 0%, #111111 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 13px 15px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .kpis.compact .kpi { padding: 10px 12px; border-radius: 6px; }
+  .kpi .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .kpi .val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 21px; font-weight: 700; margin-top: 3px; }
+  .kpis.compact .kpi .val { font-size: 16px; }
+  .kpis:not(.compact) .kpi:first-child .val { color: var(--yellow); text-shadow: 0 0 14px rgba(255,222,0,0.22); }
+  .kpi .sub { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+  .graph-scroll { overflow-x: auto; padding-bottom: 4px; }
+  .graph-wrap { display: inline-block; min-width: 750px; }
+  .months-row { display: grid; grid-template-columns: 32px repeat(53, 14px); margin-bottom: 5px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .months-row span { grid-row: 1; white-space: nowrap; }
+  .graph-body { display: flex; gap: 6px; }
+  .day-labels { display: grid; grid-template-rows: repeat(7, 11px); gap: 3px; width: 26px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); line-height: 11px; }
+  .weeks-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; }
+  .cell { width: 11px; height: 11px; border-radius: 2px; background: var(--l0); outline: 1px solid rgba(255,255,255,0.04); outline-offset: -1px; cursor: pointer; }
+  .cell.empty { background: transparent; outline: none; cursor: default; }
+  .cell.l1 { background: var(--l1); }
+  .cell.l2 { background: var(--l2); }
+  .cell.l3 { background: var(--l3); }
+  .cell.l4 { background: var(--l4); box-shadow: 0 0 6px rgba(255, 222, 0, 0.35); }
+  .cell:not(.empty):hover, .cell.selected { outline: 1.5px solid #fff; outline-offset: 0; }
+  .legend-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .legend { display: inline-flex; align-items: center; gap: 4px; }
+  .legend .cell { cursor: default; }
+
+  .day-detail {
+    margin-top: 16px;
+    padding: 16px 18px;
+    border-radius: 6px;
+    background: #0f0f0f;
+    border: 1px solid rgba(255, 222, 0, 0.42);
+    display: none;
+  }
+  .day-detail.open { display: block; animation: fadeIn 140ms ease; }
+  .day-detail-title { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--yellow); }
+  .day-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .day-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; }
+  .day-panel h3 { margin: 0 0 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .day-panel.wide { grid-column: 1 / -1; }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .bar-row { margin-bottom: 10px; }
+  .bar-row:last-child { margin-bottom: 0; }
+  .bar-meta { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 11.5px; margin-bottom: 4px; }
+  .bar-meta .v { color: var(--muted); }
+  .bar-track { height: 6px; background: #202020; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--yellow); border-radius: 3px; }
+  .bar-fill.alt { background: #c4c4c4; }
+
+  .months-chart { display: grid; grid-template-columns: repeat(12, 1fr); gap: 8px; align-items: end; height: 145px; padding-top: 14px; }
+  .m-col, .h-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .m-bar-wrap { width: 100%; max-width: 32px; flex: 1; display: flex; align-items: flex-end; }
+  .m-bar { width: 100%; background: var(--yellow); border-radius: 3px 3px 0 0; min-height: 2px; opacity: 0.88; }
+  .m-val { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+  .m-lbl { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 6px; }
+
+  .peak-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .peak-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 5px; background: #101010; border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; }
+  .peak-pill.top { border-color: rgba(255, 222, 0, 0.5); background: var(--yellow-soft); }
+  .peak-pill strong { color: var(--yellow); }
+  .hours-chart { display: grid; grid-template-columns: repeat(24, 1fr); gap: 4px; align-items: end; height: 124px; padding-top: 8px; }
+  .hours-chart.compact { height: 80px; gap: 3px; padding-top: 4px; }
+  .h-bar-wrap { width: 100%; max-width: 22px; flex: 1; display: flex; align-items: flex-end; }
+  .h-bar { width: 100%; background: #222; border-radius: 2px 2px 0 0; min-height: 2px; }
+  .h-bar.active { background: #7a6b00; }
+  .h-bar.peak { background: var(--yellow); box-shadow: 0 0 8px rgba(255, 222, 0, 0.35); }
+  .h-lbl { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 5px; }
+
+  /* Settings */
+  .provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .provider-card {
+    text-align: left;
+    background: #101010;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .provider-card:hover { border-color: var(--border-hi); }
+  .provider-card.active {
+    border-color: var(--yellow);
+    background: linear-gradient(180deg, rgba(255,222,0,0.07) 0%, rgba(16,16,16,0.98) 100%);
+    box-shadow: var(--yellow-glow);
+  }
+  .provider-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .provider-name { font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+  .status-chip { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border-hi); color: var(--muted); }
+  .status-chip.ok { color: var(--ok); border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.08); }
+  .status-chip.warn { color: var(--yellow); border-color: rgba(255, 222, 0, 0.45); background: var(--yellow-soft); }
+
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field.wide { grid-column: 1 / -1; }
+  .field label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .field .hint { font-size: 12px; color: var(--muted); }
+  input[type="text"], input[type="password"], input[type="number"], input[type="date"], textarea {
+    width: 100%;
+    background: #0b0b0b;
+    color: var(--text);
+    border: 1px solid var(--border-hi);
+    border-radius: 5px;
+    padding: 8px 10px;
+    font: 12.5px/1.45 var(--mono);
+    color-scheme: dark;
+    transition: border-color 140ms ease;
+  }
+  input[type="date"] { width: auto; padding: 5px 8px; font-size: 11.5px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--yellow); box-shadow: 0 0 0 2px rgba(255, 222, 0, 0.16); }
+  textarea { min-height: 76px; resize: vertical; }
+  .secret-row { display: flex; gap: 6px; }
+  .secret-row input { flex: 1; }
+
+  .toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 14px; }
+  .toggles.top { margin: 0 0 14px; }
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #101010;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .toggle-row:hover { border-color: var(--border-hi); }
+  .toggle-text strong { display: block; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; }
+  .toggle-text span { font-size: 11.5px; color: var(--muted); }
+  .toggle-row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--yellow); cursor: pointer; flex: none; }
+
+  .save-bar {
+    position: sticky;
+    bottom: 16px;
+    z-index: 30;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: rgba(16, 16, 16, 0.96);
+    border: 1px solid var(--yellow);
+    box-shadow: var(--yellow-glow), 0 10px 30px rgba(0,0,0,0.65);
+    margin-top: 12px;
+  }
+  .save-bar.dirty { display: flex; animation: fadeIn 140ms ease; }
+
+  #tip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 99;
+    background: #141414;
+    color: var(--text);
+    border: 1px solid var(--yellow);
+    border-radius: 5px;
+    padding: 7px 10px;
+    font: 11.5px/1.45 var(--mono);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    display: none;
+  }
+  #tip strong { display: block; color: var(--yellow); margin-bottom: 2px; }
+  #toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 100;
+    padding: 9px 14px;
+    border-radius: 6px;
+    background: #141414;
+    border: 1px solid var(--yellow);
+    color: var(--yellow);
+    font: 12px var(--mono);
+    box-shadow: var(--yellow-glow);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 150ms ease, transform 150ms ease;
+  }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.err { border-color: var(--danger); color: var(--danger); box-shadow: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <span class="logo">Si²</span>
+      <span class="brand-name">SAYIT2</span>
+    </div>
+    <nav class="nav-tabs" aria-label="Dashboard sections">
+      <button type="button" data-tab="stats" class="active">Stats</button>
+      <button type="button" data-tab="settings">Settings</button>
+    </nav>
+    <span class="live-badge" id="live-badge"><span class="live-dot"></span><span id="live-text">CONNECTING</span></span>
+  </div>
+</header>
+
+<main>
+  <!-- STATS VIEW -->
+  <section id="view-stats" class="view active">
+    <div class="toolbar">
+      <span class="muted mono" id="subtitle">LOADING USAGE HISTORY...</span>
+      <div class="row">
+        <div class="seg" id="year-seg"></div>
+        <div class="seg" id="metric-seg">
+          <button type="button" data-metric="minutes" class="active">Minutes</button>
+          <button type="button" data-metric="recordings">Sessions</button>
+          <button type="button" data-metric="words">Words</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="graph-title">ACTIVITY</h2>
+        <div class="row">
+          <span class="muted mono">DAY:</span>
+          <input type="date" id="day-jump" title="Inspect a specific day">
+          <button type="button" class="btn" id="btn-latest-day">Latest day</button>
+        </div>
+      </div>
+      <div class="graph-scroll">
+        <div class="graph-wrap">
+          <div class="months-row" id="months-row"></div>
+          <div class="graph-body">
+            <div class="day-labels">
+              <span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>
+            </div>
+            <div class="weeks-grid" id="weeks-grid"></div>
+          </div>
+        </div>
+      </div>
+      <div class="legend-row">
+        <span id="threshold-hint">Click any square to inspect that day</span>
+        <span class="legend">
+          <span>LESS</span>
+          <span class="cell"></span><span class="cell l1"></span><span class="cell l2"></span>
+          <span class="cell l3"></span><span class="cell l4"></span>
+          <span>MORE</span>
+        </span>
+      </div>
+      <div class="day-detail" id="day-detail"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="monthly-title">MONTHLY TOTALS</h2>
+        <span class="muted mono">JAN TO DEC</span>
+      </div>
+      <div class="months-chart" id="months-chart"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>MOST USED <span class="accent">HOURS</span></h2>
+        <span class="muted mono" id="hours-sub">LOCAL TIME</span>
+      </div>
+      <div class="peak-pills" id="peak-hours"></div>
+      <div class="hours-chart" id="hours-chart"></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel"><div class="panel-head"><h2>BY MODEL</h2></div><div id="by-model"></div></div>
+      <div class="panel"><div class="panel-head"><h2>BY LANGUAGE</h2></div><div id="by-lang"></div></div>
+      <div class="panel"><div class="panel-head"><h2>BY DAY OF WEEK</h2></div><div id="by-dow"></div></div>
+      <div class="panel"><div class="panel-head"><h2>BY APP</h2></div><div id="by-app"></div></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section id="view-settings" class="view">
+    <div class="toolbar">
+      <span class="muted mono">BACKED BY ~/.config/sayit2/config (APPLIES ON NEXT DICTATION)</span>
+      <div class="seg" id="settings-sub-seg">
+        <button type="button" data-sub="providers" class="active">Providers</button>
+        <button type="button" data-sub="deepgram">Deepgram</button>
+        <button type="button" data-sub="telemetry">Telemetry</button>
+      </div>
+    </div>
+
+    <div id="cfg-providers">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>ACTIVE <span class="accent">PROVIDER</span></h2>
+          <span class="muted mono">CLICK TO SWITCH</span>
+        </div>
+        <div class="provider-grid">
+          <button type="button" class="provider-card" id="card-chatgpt" data-provider="chatgpt">
+            <div class="provider-top">
+              <span class="provider-name">CHATGPT</span>
+              <span class="status-chip" id="status-chatgpt">CHECKING</span>
+            </div>
+            <div class="muted">
+              Uses the sign-in shared with the ChatGPT desktop app and codex (<code>~/.codex/auth.json</code>).
+              SayIt2 renews expired tokens automatically. Nothing to configure.
+            </div>
+          </button>
+          <button type="button" class="provider-card" id="card-deepgram" data-provider="deepgram">
+            <div class="provider-top">
+              <span class="provider-name">DEEPGRAM NOVA-3</span>
+              <span class="status-chip" id="status-deepgram">CHECKING</span>
+            </div>
+            <div class="muted">
+              Low-latency streaming with configurable model, language hints, formatting, vocabulary keyterms,
+              and regional servers. Configure in the Deepgram tab.
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="cfg-deepgram">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>DEEPGRAM <span class="accent">CONNECTION &amp; MODEL</span></h2>
+          <span class="muted mono">NOVA-3 STREAMING</span>
+        </div>
+        <div class="form-grid">
+          <div class="field wide">
+            <label for="f-dg-key">API Key</label>
+            <div class="secret-row">
+              <input type="password" id="f-dg-key" data-key="deepgram.api_key" placeholder="Enter Deepgram API key" autocomplete="off">
+              <button type="button" class="btn" data-reveal="f-dg-key">Show</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-dg-url">Server URL</label>
+            <input type="text" id="f-dg-url" data-key="deepgram.url" list="dl-dg-urls" placeholder="wss://api.deepgram.com/v1/listen">
+            <datalist id="dl-dg-urls">
+              <option value="wss://api.deepgram.com/v1/listen">
+              <option value="wss://api.eu.deepgram.com/v1/listen">
+              <option value="wss://api.au.deepgram.com/v1/listen">
+              <option value="wss://api.in.deepgram.com/v1/listen">
+            </datalist>
+            <span class="hint">Regional servers keep audio processing in that region.</span>
+          </div>
+          <div class="field">
+            <label for="f-dg-model">Model</label>
+            <input type="text" id="f-dg-model" data-key="deepgram.model" list="dl-dg-models" placeholder="nova-3">
+            <datalist id="dl-dg-models">
+              <option value="nova-3">
+              <option value="nova-3-medical">
+              <option value="nova-3-pharma">
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="f-dg-lang">Language</label>
+            <input type="text" id="f-dg-lang" data-key="deepgram.language" list="dl-dg-langs" placeholder="multi">
+            <datalist id="dl-dg-langs">
+              <option value="multi">
+              <option value="en">
+              <option value="fa">
+            </datalist>
+            <span class="hint"><code>multi</code> auto-detects English, Persian, and 53 others.</span>
+          </div>
+          <div class="field">
+            <label for="f-dg-hints">Language Hints</label>
+            <input type="text" id="f-dg-hints" data-list-key="deepgram.language_hint" placeholder="en, fa">
+            <span class="hint">Comma-separated codes used with <code>multi</code>.</span>
+          </div>
+          <div class="field">
+            <label for="f-dg-endpointing">Endpointing (ms)</label>
+            <input type="number" id="f-dg-endpointing" data-key="deepgram.endpointing" min="10" step="10" placeholder="300">
+            <span class="hint">Silence before ending a phrase (Deepgram default: 10).</span>
+          </div>
+          <div class="field">
+            <label for="f-dg-redact">Redaction</label>
+            <input type="text" id="f-dg-redact" data-list-key="deepgram.redact" list="dl-dg-redact" placeholder="off (or pci, numbers, ssn)">
+            <datalist id="dl-dg-redact">
+              <option value="true">
+              <option value="pci">
+              <option value="numbers">
+              <option value="aggressive_numbers">
+              <option value="ssn">
+            </datalist>
+            <span class="hint">Comma-separated values; leave blank to turn off.</span>
+          </div>
+        </div>
+
+        <div class="toggles">
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Interim Results</strong><span>Show live words in the pill while speaking</span></div>
+            <input type="checkbox" data-bool-key="deepgram.interim_results">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Smart Format</strong><span>Punctuation, capitals, formatted numbers/dates</span></div>
+            <input type="checkbox" data-bool-key="deepgram.smart_format">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Punctuate</strong><span>Punctuation and capitals only (off if Smart Format is on)</span></div>
+            <input type="checkbox" data-bool-key="deepgram.punctuate">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Numerals</strong><span>Write spoken numbers as digits</span></div>
+            <input type="checkbox" data-bool-key="deepgram.numerals">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Dictation Commands</strong><span>Spoken commands like "comma" or "new line"</span></div>
+            <input type="checkbox" data-bool-key="deepgram.dictation">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>Profanity Filter</strong><span>Mask profanity in output</span></div>
+            <input type="checkbox" data-bool-key="deepgram.profanity_filter">
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-text"><strong>MIP Opt Out</strong><span>Opt out of Deepgram's model improvement program</span></div>
+            <input type="checkbox" data-bool-key="deepgram.mip_opt_out">
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>VOCABULARY &amp; <span class="accent">CUSTOM PARAMETERS</span></h2>
+          <span class="muted mono">ONE ENTRY PER LINE</span>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-dg-keyterm">Keyterms (<code>deepgram.keyterm</code>)</label>
+            <textarea id="f-dg-keyterm" data-lines-key="deepgram.keyterm" placeholder="One term per line (names, product terms, jargon)"></textarea>
+          </div>
+          <div class="field">
+            <label for="f-dg-replace">Replacements (<code>deepgram.replace</code>)</label>
+            <textarea id="f-dg-replace" data-lines-key="deepgram.replace" placeholder="say it:SayIt"></textarea>
+          </div>
+          <div class="field wide">
+            <label for="f-dg-extra">Other <code>deepgram.*</code> Parameters</label>
+            <textarea id="f-dg-extra" placeholder="utterance_end_ms = 1000"></textarea>
+            <span class="hint">Any extra Deepgram query parameters in <code>name = value</code> format (one per line).</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="cfg-telemetry">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>TELEMETRY &amp; <span class="accent">OTLP EXPORT</span></h2>
+          <span class="muted mono">~/.local/share/sayit2/</span>
+        </div>
+        <div class="toggles top">
+          <label class="toggle-row">
+            <div class="toggle-text">
+              <strong>Log Transcripts</strong>
+              <span>Write raw provider frames and final text to OTel logs (also sent to Loki if OTLP endpoint is set)</span>
+            </div>
+            <input type="checkbox" data-bool-key="telemetry.transcripts">
+          </label>
+        </div>
+        <div class="form-grid">
+          <div class="field wide">
+            <label for="f-otlp-ep">OTLP/HTTP Endpoint (<code>telemetry.otlp.endpoint</code>)</label>
+            <input type="text" id="f-otlp-ep" data-key="telemetry.otlp.endpoint" placeholder="https://otlp-gateway-example.grafana.net/otlp">
+            <span class="hint">Leave blank to keep traces, metrics, and logs strictly local.</span>
+          </div>
+          <div class="field wide">
+            <label for="f-otlp-auth">OTLP Authorization Header (<code>telemetry.otlp.authorization</code>)</label>
+            <div class="secret-row">
+              <input type="password" id="f-otlp-auth" data-key="telemetry.otlp.authorization" placeholder="Basic ..." autocomplete="off">
+              <button type="button" class="btn" data-reveal="f-otlp-auth">Show</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="save-bar" id="save-bar">
+      <span class="mono accent">UNSAVED TEXT CHANGES (CMD+S TO SAVE)</span>
+      <div class="row">
+        <button type="button" class="btn" id="btn-discard">Discard</button>
+        <button type="button" class="btn primary" id="btn-save">Save Settings</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MANAGED_DG_KEYS = new Set(
+  Array.from(document.querySelectorAll("[data-key],[data-list-key],[data-lines-key],[data-bool-key]"))
+    .map(el => el.dataset.key || el.dataset.listKey || el.dataset.linesKey || el.dataset.boolKey)
+    .filter(k => k && k.startsWith("deepgram."))
+);
+
+let store = { schemaVersion: 1, days: {} };
+let selectedYear = null;
+let selectedMetric = "minutes";
+let selectedDayKey = null;
+let lastEtag = null;
+let lastSyncText = "LIVE";
+let activeTab = "stats";
+let configLoaded = false;
+let loadedMap = {};
+let extraDgKeys = [];
+let dirty = false;
+let toastTimer = null;
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const num = n => { const v = Number(n); return Number.isFinite(v) ? v : 0; };
+const fmtNum = n => Math.round(num(n)).toLocaleString();
+const pad2 = n => n < 10 ? "0" + n : "" + n;
+const isoDate = (y, m, d) => y + "-" + pad2(m + 1) + "-" + pad2(d);
+function fmtDuration(sec) {
+  const m = num(sec) / 60;
+  if (m < 60) return m.toFixed(1) + "m";
+  const h = Math.floor(m / 60);
+  return h + "h " + Math.round(m - h * 60) + "m";
+}
+function showToast(msg, isErr) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = isErr ? "err" : ""; }, 2400);
+}
+
+// --- Tabs ---
+function setTab(tab) {
+  activeTab = tab === "settings" ? "settings" : "stats";
+  document.querySelectorAll(".nav-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === activeTab));
+  document.getElementById("view-stats").classList.toggle("active", activeTab === "stats");
+  document.getElementById("view-settings").classList.toggle("active", activeTab === "settings");
+  if (location.hash !== "#" + activeTab) history.replaceState(null, "", "#" + activeTab);
+  if (activeTab === "settings" && !dirty) loadConfig();
+}
+function setSettingsSub(sub) {
+  document.querySelectorAll("#settings-sub-seg button").forEach(b => b.classList.toggle("active", b.dataset.sub === sub));
+  ["providers","deepgram","telemetry"].forEach(id => {
+    document.getElementById("cfg-" + id).style.display = (id === sub) ? "block" : "none";
+  });
+}
+
+// --- Shared stats helpers ---
+function activeDayKeys() {
+  return Object.keys(store.days || {}).filter(k => num(store.days[k]?.recordings) > 0).sort();
+}
+function getYears(days) {
+  const ys = new Set();
+  for (const k of Object.keys(days || {})) {
+    const y = parseInt(k.slice(0, 4), 10);
+    if (!Number.isNaN(y)) ys.add(y);
+  }
+  if (selectedYear) ys.add(selectedYear);
+  const arr = Array.from(ys).sort((a, b) => b - a);
+  return arr.length ? arr : [new Date().getFullYear()];
+}
+function metricValue(obj) {
+  if (!obj) return 0;
+  if (selectedMetric === "recordings") return num(obj.recordings);
+  if (selectedMetric === "words") return num(obj.words);
+  return num(obj.seconds) / 60;
+}
+function metricFormat(val) {
+  if (selectedMetric === "recordings") return fmtNum(val) + " rec";
+  if (selectedMetric === "words") return fmtNum(val) + " w";
+  return num(val).toFixed(1) + "m";
+}
+function computeThresholds(values) {
+  const pos = values.filter(v => v > 0).sort((a, b) => a - b);
+  if (!pos.length) return [1, 2, 3, 4];
+  const q = p => pos[Math.min(pos.length - 1, Math.floor(p * (pos.length - 1)))];
+  return [q(0.25), q(0.50), q(0.75), q(0.92)];
+}
+const levelFor = (val, t) => val <= 0 ? 0 : 1 + t.slice(0, 3).filter(x => val > x).length;
+
+function kpisHtml(items) {
+  return items.map(k => '<div class="kpi"><div class="label">' + esc(k.label) + '</div><div class="val">' + esc(k.val) + '</div><div class="sub">' + esc(k.sub) + '</div></div>').join("");
+}
+function barsHtml(entries, totalSec, alt) {
+  if (!entries.length) return '<div class="muted mono">NO DATA</div>';
+  const maxVal = Math.max(...entries.map(e => num(e.seconds)), 1);
+  return entries.map(e => {
+    const s = num(e.seconds), pct = totalSec > 0 ? Math.round((s / totalSec) * 100) : 0;
+    const w = Math.max(2, Math.round((s / maxVal) * 100));
+    const wp = num(e.words) ? " &middot; " + fmtNum(e.words) + "w" : "";
+    return '<div class="bar-row"><div class="bar-meta"><span>' + esc(e.key) + '</span>' +
+      '<span class="v">' + fmtDuration(s) + ' (' + pct + '%) &middot; ' + fmtNum(e.recordings) + ' rec' + wp + '</span></div>' +
+      '<div class="bar-track"><div class="bar-fill' + (alt ? ' alt' : '') + '" style="width:' + w + '%"></div></div></div>';
+  }).join("");
+}
+function hoursHtml(hours, peakSet, valFn) {
+  const maxH = Math.max(...hours.map(valFn), 1);
+  return hours.map(h => {
+    const v = valFn(h), pct = v > 0 ? Math.max(5, Math.round((v / maxH) * 100)) : 2;
+    const cls = peakSet.has(h.hour) ? " peak" : (v > 0 ? " active" : "");
+    return '<div class="h-col" title="' + esc(h.label) + ':00: ' + fmtDuration(h.seconds) + ', ' + fmtNum(h.recordings) + ' rec">' +
+      '<div class="h-bar-wrap"><div class="h-bar' + cls + '" style="height:' + pct + '%"></div></div>' +
+      '<div class="h-lbl">' + esc(h.label) + '</div></div>';
+  }).join("");
+}
+
+function selectDay(key) {
+  if (!key) { selectedDayKey = null; renderStats(); return; }
+  const y = parseInt(key.slice(0, 4), 10);
+  if (!Number.isNaN(y)) selectedYear = y;
+  selectedDayKey = key;
+  renderStats();
+}
+
+function renderDayDetail(key, day, allActive) {
+  const box = document.getElementById("day-detail");
+  document.getElementById("day-jump").value = key || "";
+  if (!key) { box.className = "day-detail"; box.innerHTML = ""; return; }
+  box.className = "day-detail open";
+  const prevKey = allActive.filter(k => k < key).pop() || "";
+  const nextKey = allActive.find(k => k > key) || "";
+  const dt = new Date(parseInt(key.slice(0,4),10), parseInt(key.slice(5,7),10) - 1, parseInt(key.slice(8,10),10));
+  const titleStr = dt.toLocaleDateString("en", { weekday: "long" }).toUpperCase() + " // " + key;
+  const navHtml = '<div class="row">' +
+    '<button type="button" class="btn" data-day="' + esc(prevKey) + '"' + (prevKey ? '' : ' disabled') + '>&larr; Prev</button>' +
+    '<button type="button" class="btn" data-day="' + esc(nextKey) + '"' + (nextKey ? '' : ' disabled') + '>Next &rarr;</button>' +
+    '<button type="button" class="btn" data-day="">Close</button></div>';
+
+  if (!day || !(num(day.recordings) > 0)) {
+    box.innerHTML = '<div class="panel-head"><div class="day-detail-title">' + esc(titleStr) + '</div>' + navHtml + '</div><div class="muted mono">NO DICTATIONS RECORDED</div>';
+    return;
+  }
+  const sec = num(day.seconds), rec = num(day.recordings), words = num(day.words), chars = num(day.characters);
+  const comp = day.completed != null ? num(day.completed) : rec, fail = num(day.failed), canc = num(day.cancelled);
+  const wpm = sec > 0 ? Math.round(words / (sec / 60)) : 0;
+  const toE = o => Object.entries(o || {}).map(([k, v]) => ({ key: k, recordings: num(v.recordings), seconds: num(v.seconds), words: num(v.words) })).sort((a,b) => b.seconds - a.seconds);
+  const models = toE(day.byModel), langs = toE(day.byLanguage), apps = toE(day.byApp), triggers = toE(day.byTrigger);
+  const dayHours = Array.from({ length: 24 }, (_, h) => {
+    const raw = (day.byHour || {})[pad2(h)];
+    return { hour: h, label: pad2(h), recordings: num(raw?.recordings), seconds: num(raw?.seconds), words: num(raw?.words) };
+  });
+  const activeHours = dayHours.filter(h => h.seconds > 0 || h.recordings > 0).sort((a,b) => b.seconds - a.seconds);
+  const topHour = activeHours[0] || null;
+  const kpis = kpisHtml([
+    { label: "Time", val: fmtDuration(sec), sub: sec.toFixed(1) + "s" },
+    { label: "Sessions", val: fmtNum(rec), sub: (fail||canc) ? (fmtNum(comp)+" ok, "+fmtNum(fail)+" fail, "+fmtNum(canc)+" canc") : (fmtNum(comp)+" completed") },
+    { label: "Words", val: fmtNum(words), sub: wpm + " WPM" },
+    { label: "Characters", val: fmtNum(chars), sub: "Avg " + fmtDuration(rec > 0 ? sec / rec : 0) },
+    { label: "Peak Hour", val: topHour ? (topHour.label + ":00") : "N/A", sub: topHour ? (fmtDuration(topHour.seconds) + ", " + fmtNum(topHour.recordings) + " rec") : "Not tracked" },
+  ]);
+
+  let panels = '<div class="day-panel"><h3>Models</h3>' + barsHtml(models, sec, false) + '</div>' +
+               '<div class="day-panel"><h3>Languages</h3>' + barsHtml(langs, sec, true) + '</div>';
+  if (apps.length) panels += '<div class="day-panel"><h3>Apps</h3>' + barsHtml(apps, sec, false) + '</div>';
+  if (triggers.length) panels += '<div class="day-panel"><h3>Trigger Mode</h3>' + barsHtml(triggers, sec, true) + '</div>';
+  if (activeHours.length) {
+    panels += '<div class="day-panel wide"><h3>Hourly Activity</h3><div class="hours-chart compact">' +
+      hoursHtml(dayHours, new Set(topHour ? [topHour.hour] : []), h => h.seconds) + '</div></div>';
+  }
+  box.innerHTML = '<div class="panel-head"><div class="day-detail-title">' + esc(titleStr) + '</div>' + navHtml + '</div>' +
+    '<div class="kpis compact">' + kpis + '</div><div class="day-panels">' + panels + '</div>';
+}
+
+function renderStats() {
+  const tip = document.getElementById("tip");
+  tip.style.display = "none";
+
+  const years = getYears(store.days);
+  if (!selectedYear) selectedYear = years[0];
+  const ySeg = document.getElementById("year-seg");
+  ySeg.innerHTML = "";
+  years.forEach(y => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = y;
+    if (y === selectedYear) b.className = "active";
+    b.onclick = () => { selectedYear = y; selectedDayKey = null; renderStats(); };
+    ySeg.appendChild(b);
+  });
+
+  const days = store.days || {}, prefix = selectedYear + "-", yearDays = {};
+  for (const [k, v] of Object.entries(days)) if (k.startsWith(prefix)) yearDays[k] = v;
+
+  let totRec = 0, totSec = 0, totWords = 0, activeDays = 0, hourDays = 0, bestDay = null, bestSec = -1;
+  const byModel = {}, byLang = {}, byApp = {};
+  const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, label: pad2(h), recordings: 0, seconds: 0, words: 0 }));
+  const byDow = Array.from({ length: 7 }, (_, i) => ({ key: DOW[i], recordings: 0, seconds: 0 }));
+  const byMonth = Array.from({ length: 12 }, () => ({ recordings: 0, seconds: 0, words: 0 }));
+  const addAgg = (m, k, b) => {
+    if (!m[k]) m[k] = { key: k, recordings: 0, seconds: 0, words: 0 };
+    m[k].recordings += num(b.recordings); m[k].seconds += num(b.seconds); m[k].words += num(b.words);
+  };
+
+  for (const [k, d] of Object.entries(yearDays)) {
+    const r = num(d.recordings), s = num(d.seconds), w = num(d.words);
+    if (r > 0) activeDays++;
+    totRec += r; totSec += s; totWords += w;
+    if (s > bestSec) { bestSec = s; bestDay = k; }
+    const mIdx = parseInt(k.slice(5, 7), 10) - 1;
+    if (mIdx >= 0 && mIdx < 12) { byMonth[mIdx].recordings += r; byMonth[mIdx].seconds += s; byMonth[mIdx].words += w; }
+    const dt = new Date(parseInt(k.slice(0,4),10), mIdx, parseInt(k.slice(8,10),10));
+    byDow[dt.getDay()].recordings += r; byDow[dt.getDay()].seconds += s;
+    for (const [mk, mv] of Object.entries(d.byModel || {})) addAgg(byModel, mk, mv);
+    for (const [lk, lv] of Object.entries(d.byLanguage || {})) addAgg(byLang, lk, lv);
+    for (const [ak, av] of Object.entries(d.byApp || {})) addAgg(byApp, ak, av);
+    const he = Object.entries(d.byHour || {});
+    if (he.length) hourDays++;
+    for (const [hk, hv] of he) {
+      const h = parseInt(hk, 10);
+      if (h >= 0 && h < 24) { byHour[h].recordings += num(hv.recordings); byHour[h].seconds += num(hv.seconds); byHour[h].words += num(hv.words); }
+    }
+  }
+
+  let longest = 0, cur = 0, latest = 0;
+  const jan1 = new Date(selectedYear, 0, 1), dec31 = new Date(selectedYear, 11, 31);
+  const yKeys = Object.keys(yearDays).sort(), lastK = yKeys[yKeys.length - 1] || null;
+  for (let d = new Date(jan1); d <= dec31; d.setDate(d.getDate() + 1)) {
+    const k = isoDate(d.getFullYear(), d.getMonth(), d.getDate());
+    if (yearDays[k] && num(yearDays[k].recordings) > 0) { cur++; if (cur > longest) longest = cur; if (k === lastK) latest = cur; }
+    else cur = 0;
+  }
+
+  const allActive = activeDayKeys();
+  document.getElementById("subtitle").textContent = allActive.length
+    ? allActive[0] + " TO " + allActive[allActive.length - 1] + " // " + allActive.length + " ACTIVE DAYS"
+    : "NO DICTATIONS RECORDED YET";
+  const wpm = totSec > 0 ? Math.round(totWords / (totSec / 60)) : 0;
+  document.getElementById("kpis").innerHTML = kpisHtml([
+    { label: "Total Time", val: fmtDuration(totSec), sub: Math.round(totSec / 60) + " MIN" },
+    { label: "Sessions", val: fmtNum(totRec), sub: activeDays + " ACTIVE DAYS" },
+    { label: "Words", val: fmtNum(totWords), sub: wpm + " AVG WPM" },
+    { label: "Longest Streak", val: longest + "D", sub: "LATEST " + latest + "D" },
+    { label: "Busiest Day", val: bestDay || "-", sub: bestSec > 0 ? fmtDuration(bestSec) : "NONE" },
+  ]);
+
+  const startDow = jan1.getDay(), thresholds = computeThresholds(Object.values(yearDays).map(metricValue));
+  const totalSlots = startDow + Math.round((dec31 - jan1) / 86400000) + 1, totalWeeks = Math.ceil(totalSlots / 7);
+  const mRow = document.getElementById("months-row"), wGrid = document.getElementById("weeks-grid");
+  mRow.innerHTML = ""; wGrid.innerHTML = "";
+  mRow.style.gridTemplateColumns = "32px repeat(" + totalWeeks + ", 14px)";
+  const placed = new Set();
+  const moveTip = e => { tip.style.left = Math.min(window.innerWidth - 260, e.clientX + 14) + "px"; tip.style.top = Math.max(12, e.clientY - 54) + "px"; };
+
+  for (let slot = 0; slot < totalWeeks * 7; slot++) {
+    const cell = document.createElement("div");
+    const dt = new Date(selectedYear, 0, 1 + (slot - startDow));
+    if (dt.getFullYear() !== selectedYear) { cell.className = "cell empty"; }
+    else {
+      const k = isoDate(dt.getFullYear(), dt.getMonth(), dt.getDate()), day = yearDays[k];
+      const lvl = levelFor(metricValue(day), thresholds);
+      cell.className = "cell" + (lvl ? " l" + lvl : "") + (selectedDayKey === k ? " selected" : "");
+      if (dt.getDate() <= 7 && !placed.has(dt.getMonth())) {
+        placed.add(dt.getMonth());
+        const lbl = document.createElement("span");
+        lbl.textContent = MONTHS[dt.getMonth()].toUpperCase();
+        lbl.style.gridColumn = String(Math.floor(slot / 7) + 2);
+        mRow.appendChild(lbl);
+      }
+      cell.onmouseenter = e => {
+        tip.style.display = "block";
+        tip.innerHTML = day
+          ? "<strong>" + esc(k) + " (" + DOW[dt.getDay()] + ")</strong>" + fmtDuration(day.seconds) + " &middot; " + fmtNum(day.recordings) + " rec<br>" + fmtNum(day.words) + " words &middot; " + fmtNum(day.characters) + " chars"
+          : "<strong>" + esc(k) + " (" + DOW[dt.getDay()] + ")</strong>No dictations";
+        moveTip(e);
+      };
+      cell.onmousemove = moveTip;
+      cell.onmouseleave = () => { tip.style.display = "none"; };
+      cell.onclick = () => selectDay(selectedDayKey === k ? null : k);
+    }
+    wGrid.appendChild(cell);
+  }
+  document.getElementById("graph-title").innerHTML = fmtNum(totRec) + ' SESSIONS (<span class="accent">' + fmtDuration(totSec) + "</span>) IN " + selectedYear;
+  document.getElementById("threshold-hint").textContent = "L1 <= " + metricFormat(thresholds[0]) + " / L2 <= " + metricFormat(thresholds[1]) + " / L3 <= " + metricFormat(thresholds[2]);
+  renderDayDetail(selectedDayKey, selectedDayKey ? yearDays[selectedDayKey] : null, allActive);
+
+  const maxM = Math.max(...byMonth.map(metricValue), 1);
+  document.getElementById("monthly-title").innerHTML = 'MONTHLY <span class="accent">' + esc(selectedMetric.toUpperCase()) + "</span>";
+  document.getElementById("months-chart").innerHTML = byMonth.map((m, i) => {
+    const v = metricValue(m), h = v > 0 ? Math.max(4, Math.round((v / maxM) * 100)) : 0;
+    return '<div class="m-col" title="' + MONTHS[i] + ': ' + fmtDuration(m.seconds) + ', ' + fmtNum(m.recordings) + ' rec">' +
+      '<div class="m-val">' + (v > 0 ? (selectedMetric === "minutes" ? Math.round(v) + "m" : fmtNum(v)) : "") + '</div>' +
+      '<div class="m-bar-wrap"><div class="m-bar" style="height:' + h + '%"></div></div>' +
+      '<div class="m-lbl">' + MONTHS[i].toUpperCase() + '</div></div>';
+  }).join("");
+
+  const rankedH = byHour.filter(h => metricValue(h) > 0).sort((a,b) => metricValue(b) - metricValue(a));
+  const peakSet = new Set(rankedH.slice(0, 3).map(h => h.hour));
+  const totHV = rankedH.reduce((s, h) => s + metricValue(h), 0);
+  document.getElementById("hours-sub").textContent = hourDays ? (hourDays + " DAY" + (hourDays===1?"":"S") + " WITH HOURLY DATA") : "NO HOURLY DATA";
+  document.getElementById("peak-hours").innerHTML = rankedH.length
+    ? rankedH.slice(0, 3).map((h, i) => '<div class="peak-pill' + (i===0?' top':'') + '"><span>#' + (i+1) + '</span><strong>' + h.label + ':00-' + pad2((h.hour+1)%24) + ':00</strong><span class="muted">' + fmtDuration(h.seconds) + ' (' + Math.round((metricValue(h)/totHV)*100) + '%) &middot; ' + fmtNum(h.recordings) + ' rec</span></div>').join("")
+    : '<span class="muted mono">NO HOURLY BREAKDOWN RECORDED YET</span>';
+  document.getElementById("hours-chart").innerHTML = hoursHtml(byHour, peakSet, metricValue);
+
+  document.getElementById("by-model").innerHTML = barsHtml(Object.values(byModel).sort((a,b) => b.seconds - a.seconds), totSec, false);
+  document.getElementById("by-lang").innerHTML = barsHtml(Object.values(byLang).sort((a,b) => b.seconds - a.seconds), totSec, true);
+  document.getElementById("by-dow").innerHTML = barsHtml(byDow, totSec, false);
+  const apps = Object.values(byApp).sort((a,b) => b.seconds - a.seconds);
+  document.getElementById("by-app").innerHTML = barsHtml(apps, apps.reduce((s,e) => s + e.seconds, 0) || totSec, true);
+}
+
+// --- Settings ---
+function setDirty(v) {
+  dirty = v;
+  document.getElementById("save-bar").classList.toggle("dirty", v);
+}
+
+function applyConfigData(cfg, forceText = false) {
+  configLoaded = true;
+  const map = {};
+  for (const [k, v] of (cfg.entries || [])) (map[k] ||= []).push(v);
+  loadedMap = map;
+  const last = (k, def = "") => (map[k] && map[k].length) ? map[k][map[k].length - 1] : def;
+
+  const provider = last("provider", "chatgpt");
+  document.getElementById("card-chatgpt").classList.toggle("active", provider === "chatgpt");
+  document.getElementById("card-deepgram").classList.toggle("active", provider === "deepgram");
+  const cgStatus = document.getElementById("status-chatgpt");
+  cgStatus.textContent = cfg.chatgptSignedIn ? "SIGNED IN" : "SIGN IN NEEDED";
+  cgStatus.className = "status-chip " + (cfg.chatgptSignedIn ? "ok" : "warn");
+  const dgStatus = document.getElementById("status-deepgram");
+  dgStatus.textContent = last("deepgram.api_key") ? "API KEY SET" : "KEY MISSING";
+  dgStatus.className = "status-chip " + (last("deepgram.api_key") ? "ok" : "warn");
+
+  document.querySelectorAll("[data-bool-key]").forEach(el => {
+    el.checked = last(el.dataset.boolKey, "false").toLowerCase() === "true";
+  });
+
+  if (forceText || !dirty) {
+    document.querySelectorAll("[data-key]").forEach(el => { el.value = last(el.dataset.key, ""); });
+    document.querySelectorAll("[data-list-key]").forEach(el => { el.value = (map[el.dataset.listKey] || []).join(", "); });
+    document.querySelectorAll("[data-lines-key]").forEach(el => { el.value = (map[el.dataset.linesKey] || []).join("\n"); });
+    const extraLines = [];
+    extraDgKeys = [];
+    for (const [k, v] of (cfg.entries || [])) {
+      if (k.startsWith("deepgram.") && !MANAGED_DG_KEYS.has(k)) {
+        extraLines.push(k.slice(9) + " = " + v);
+        if (!extraDgKeys.includes(k)) extraDgKeys.push(k);
+      }
+    }
+    document.getElementById("f-dg-extra").value = extraLines.join("\n");
+    setDirty(false);
+  }
+}
+
+async function loadConfig(forceText = false) {
+  try {
+    const res = await fetch("./config", { cache: "no-store" });
+    if (res.ok) applyConfigData(await res.json(), forceText);
+  } catch (_) {}
+}
+
+async function saveUpdates(updates, label, forceText = false) {
+  if (!Object.keys(updates).length) { setDirty(false); return; }
+  try {
+    const res = await fetch("./config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    applyConfigData(await res.json(), forceText);
+    showToast(label || "SAVED // APPLIES ON NEXT DICTATION");
+  } catch (_) {
+    showToast("SAVE FAILED", true);
+  }
+}
+
+function arrEq(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+
+function collectChangedTextUpdates() {
+  const next = {};
+  document.querySelectorAll("[data-key]").forEach(el => {
+    const v = el.value.trim();
+    next[el.dataset.key] = v ? [v] : [];
+  });
+  document.querySelectorAll("[data-list-key]").forEach(el => {
+    next[el.dataset.listKey] = el.value.split(",").map(s => s.trim()).filter(Boolean);
+  });
+  document.querySelectorAll("[data-lines-key]").forEach(el => {
+    next[el.dataset.linesKey] = el.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  });
+  for (const k of extraDgKeys) next[k] = [];
+  for (const line of document.getElementById("f-dg-extra").value.split(/\r?\n/)) {
+    const idx = line.indexOf("=");
+    if (idx <= 0) continue;
+    const rawK = line.slice(0, idx).trim(), val = line.slice(idx + 1).trim();
+    if (!rawK || rawK.startsWith("#") || !val) continue;
+    const fullK = rawK.startsWith("deepgram.") ? rawK : "deepgram." + rawK;
+    if (MANAGED_DG_KEYS.has(fullK)) continue;
+    (next[fullK] ||= []).push(val);
+  }
+  const diff = {};
+  for (const [k, vals] of Object.entries(next)) {
+    if (!arrEq(vals, loadedMap[k] || [])) diff[k] = vals;
+  }
+  return diff;
+}
+
+function saveTextChanges() {
+  if (!configLoaded || !dirty) return;
+  saveUpdates(collectChangedTextUpdates(), "SAVED // APPLIES ON NEXT DICTATION", true);
+}
+
+// --- Live stats polling ---
+async function pollStats() {
+  if (document.hidden) return;
+  const badge = document.getElementById("live-badge"), txt = document.getElementById("live-text");
+  try {
+    const res = await fetch("./usage_stats.json", { cache: "no-store", headers: lastEtag ? { "If-None-Match": lastEtag } : {} });
+    if (res.status === 200) {
+      lastEtag = res.headers.get("ETag");
+      const parsed = await res.json();
+      if (parsed && parsed.days) { store = parsed; renderStats(); }
+      lastSyncText = "LIVE " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      badge.className = "live-badge on";
+      txt.textContent = lastSyncText;
+    } else if (res.status === 304) {
+      badge.className = "live-badge on";
+      txt.textContent = lastSyncText;
+    }
+  } catch (_) {
+    badge.className = "live-badge";
+    txt.textContent = "OFFLINE";
+  }
+}
+
+// --- Wiring ---
+document.querySelectorAll(".nav-tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.querySelectorAll("#settings-sub-seg button").forEach(b => b.onclick = () => setSettingsSub(b.dataset.sub));
+document.querySelectorAll("#metric-seg button").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll("#metric-seg button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active"); selectedMetric = btn.dataset.metric; renderStats();
+  };
+});
+document.getElementById("day-jump").onchange = e => { if (e.target.value) selectDay(e.target.value); };
+document.getElementById("btn-latest-day").onclick = () => {
+  const ks = activeDayKeys();
+  if (ks.length) selectDay(ks[ks.length - 1]);
+};
+document.getElementById("day-detail").onclick = e => {
+  const btn = e.target.closest("button[data-day]");
+  if (btn && !btn.disabled) selectDay(btn.dataset.day || null);
+};
+
+document.querySelectorAll(".provider-card").forEach(card => {
+  card.onclick = () => saveUpdates({ provider: [card.dataset.provider] }, "PROVIDER -> " + card.dataset.provider.toUpperCase());
+});
+document.querySelectorAll("[data-bool-key]").forEach(el => {
+  el.onchange = () => saveUpdates({ [el.dataset.boolKey]: [el.checked ? "true" : "false"] });
+});
+document.querySelectorAll("[data-key], [data-list-key], [data-lines-key], #f-dg-extra").forEach(el => {
+  el.oninput = () => { if (configLoaded) setDirty(true); };
+});
+document.querySelectorAll("[data-reveal]").forEach(btn => {
+  btn.onclick = () => {
+    const inp = document.getElementById(btn.dataset.reveal);
+    const show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    btn.textContent = show ? "Hide" : "Show";
+  };
+});
+document.getElementById("btn-save").onclick = saveTextChanges;
+document.getElementById("btn-discard").onclick = () => loadConfig(true);
+
+window.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && activeTab === "settings") {
+    e.preventDefault();
+    saveTextChanges();
+  }
+});
+window.addEventListener("hashchange", () => setTab(location.hash.slice(1)));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollStats(); if (activeTab === "settings" && !dirty) loadConfig(); } });
+
+setSettingsSub("providers");
+setTab(location.hash.slice(1) || "stats");
+pollStats();
+setInterval(pollStats, 3000);
+</script>
+</body>
+</html>
