@@ -92,11 +92,18 @@ dictation in the ChatGPT desktop app.
 
 **Text**
 - While speaking, the live words are shown only in the pill. Nothing touches the text field.
+  Brief ElevenLabs interim contractions are held in the preview, without changing the text
+  the provider returned or the fallback text.
 - When done, the provider's final text is inserted once and wins over the live text. SayIt2
   preserves punctuation and makes no automatic substitutions. The optional local rules in
   Settings → Vocabulary apply to all providers and affect only the final text. No rules are
   enabled by default, and the rules themselves are never sent to a provider. Provider hints
   and server-side editing are separate and labeled in the provider settings.
+- On stop, ChatGPT waits for `transcript.final` and session close; Deepgram sends `CloseStream`
+  and waits for final results followed by `Metadata`; ElevenLabs asks for a final commit and
+  waits for `committed_transcript` and any enabled edit or redaction. Scribe automatic modes
+  also allow a short drain for a racing segment. A missing final has a bounded wait and uses
+  the best available text as an error fallback, never as a confirmed final.
 - Insertion uses Unicode key events, never the clipboard, and goes to the text field that had
   focus when dictation started. If focus is elsewhere, it waits until that field is back, with
   no time limit. If that field no longer exists, it inserts into whatever field of the app has

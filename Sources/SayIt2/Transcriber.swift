@@ -7,6 +7,7 @@ class Transcriber {
     /// Text that may still change. Replaces the previous interim text.
     var onInterim: ((String) -> Void)?
     /// Text that will not change, and how many audio bytes of this connection it covers.
+    /// Follow with onInterim to publish the new uncommitted tail in the same update.
     var onFinal: ((String, Int) -> Void)?
     /// The server asked the client to wrap up.
     var onStopRequested: (() -> Void)?
@@ -22,6 +23,7 @@ class Transcriber {
     private(set) var lastMessage = Date()
     /// Whether audio may be sent yet.
     var isReady: Bool { true }
+    var acceptsAudio: Bool { true }
     var span: Span?
     var logTranscripts = false
 
@@ -99,6 +101,7 @@ class Transcriber {
     }
 
     private func receive() {
+        guard !ended else { return }
         task?.receive { [weak self] result in
             Task { @MainActor in
                 guard let self, !self.ended else { return }

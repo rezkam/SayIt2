@@ -23,6 +23,10 @@ final class ElevenLabsStream: Transcriber {
     private var sent = 0
     private var lastCommit = 0
     private var pendingCommit: Int?
+    private var rollingTimeout: Task<Void, Never>?
+    private var retryCommit: Task<Void, Never>?
+    private var finishRetried = false
+    private var nextRollingCommit = Date.distantPast
     private var turnProbability = 0.0
     private var finishing = false
     private var stopCommitSent = false
@@ -33,6 +37,7 @@ final class ElevenLabsStream: Transcriber {
     private var missedRedaction = false
     private var redacting: Bool { replacementEvent == "redacted_transcript" }
     override var isReady: Bool { ready }
+    override var acceptsAudio: Bool { automatic || pendingCommit == nil }
 
     init(config: Config, previousText: String) {
         self.config = config
@@ -101,9 +106,17 @@ final class ElevenLabsStream: Transcriber {
             frame.append(Data(count: Provider.elevenlabs.frameBytes - frame.count))
         }
         let uncommitted = sent - lastCommit
-        let commit = !automatic && pendingCommit == nil &&
+        let commit = !automatic && pendingCommit == nil && Date() >= nextRollingCommit &&
             (uncommitted >= 28 * 32000 || (uncommitted >= 20 * 32000 && turnProbability >= 0.9))
-        if commit { pendingCommit = sent }
+        if commit {
+            // Do not send the next segment's audio until this byte boundary is confirmed.
+            pendingCommit = sent
+            rollingTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                guard !Task.isCancelled, let self else { return }
+                self.end(Problem(message: "ElevenLabs did not confirm a segment"))
+            }
+        }
         sendChunk(frame, commit: commit, first: first)
     }
 
@@ -123,11 +136,11 @@ final class ElevenLabsStream: Transcriber {
         if sent == 0 { return end(nil) }
         requestStopCommit()
         deadline = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
+            let limit = self?.replacementEvent == nil ? 8 : 13
+            try? await Task.sleep(for: .seconds(limit))
             guard !Task.isCancelled, let self else { return }
-            let missingFinal = !self.stopCommitSent || self.pendingCommit != nil
-            self.end(missingFinal && (!self.automatic || !self.partial.isEmpty)
-                     ? Problem(message: "ElevenLabs did not finish", retryable: false) : nil)
+            let missingFinal = !self.stopCommitSent || self.pendingCommit != nil || !self.partial.isEmpty
+            self.end(missingFinal ? Problem(message: "ElevenLabs did not confirm the final text", retryable: false) : nil)
         }
         finishIfDrained()
     }
@@ -142,28 +155,61 @@ final class ElevenLabsStream: Transcriber {
     }
 
     private func finishIfDrained() {
-        guard stopCommitSent, pendingCommit == nil, segments.isEmpty else { return }
-        if !automatic { return end(nil) }
-        // An automatic commit can cross the stop request. Drain late text before closing.
-        guard partial.isEmpty, settle == nil else { return }
+        guard stopCommitSent, pendingCommit == nil, partial.isEmpty else { return }
+        if !automatic, segments.isEmpty { return end(nil) }
+        guard settle == nil else { return }
+        // Edits can follow the base commit. In automatic mode, another segment can also
+        // cross the stop request; Scribe has no separate end-of-stream event.
+        let delay = automatic ? 1.5 : 0
+        let editDelay = segments.first.map { max(0, 5 - Date().timeIntervalSince($0.receivedAt)) } ?? 0
         settle = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(700))
+            try? await Task.sleep(for: .seconds(max(delay, editDelay)))
             guard !Task.isCancelled, let self else { return }
-            self.end(nil)
+            self.settle = nil
+            self.flush()
+            if self.pendingCommit == nil, self.partial.isEmpty, self.segments.isEmpty { self.end(nil) }
+            else { self.finishIfDrained() }
+        }
+    }
+
+    private func retryStopCommit() {
+        guard finishing, pendingCommit != nil, !finishRetried else { return }
+        finishRetried = true
+        retryCommit = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled, let self, self.pendingCommit != nil else { return }
+            self.sendChunk(Data(), commit: true)
         }
     }
 
     override func received(_ message: [String: Any]) {
         let type = message["message_type"] as? String ?? ""
-        let text = message["text"] as? String ?? ""
+        let raw = message["text"] as? String ?? ""
+        let text = raw.allSatisfy(\.isWhitespace) ? "" : raw
         switch type {
         case "session_started": ready = true
         case "partial_transcript":
-            if !text.isEmpty { settle?.cancel(); settle = nil }
-            if !(finishing && text.isEmpty && pendingCommit != nil) { partial = text }
+            // Empty keepalives do not supersede the last recognized words.
+            if !text.isEmpty {
+                settle?.cancel()
+                settle = nil
+                partial = text
+                if automatic, stopCommitSent, pendingCommit == nil, !finishRetried {
+                    pendingCommit = sent
+                    retryStopCommit()
+                }
+            }
             turnProbability = message["turn_probability"] as? Double ?? 0
         case "committed_transcript":
-            if automatic { settle?.cancel(); settle = nil }
+            if text.isEmpty, !partial.isEmpty {
+                // An empty commit cannot confirm words, or release their audio for replay.
+                retryStopCommit()
+                return
+            }
+            settle?.cancel()
+            settle = nil
+            rollingTimeout?.cancel()
+            retryCommit?.cancel()
             // Once automatic text is committed, the connection is no longer replayable.
             // Release delivered audio rather than retaining it for the whole dictation.
             if !text.isEmpty { sawCommit = true }
@@ -179,7 +225,7 @@ final class ElevenLabsStream: Transcriber {
                 return end(Problem(message: "ElevenLabs committed audio unexpectedly", retryable: false))
             }
             segments.append(Segment(original: text, covered: covered))
-            if !text.isEmpty || !finishing { partial = "" }
+            partial = ""
             turnProbability = 0
             requestStopCommit()
         case "edited_transcript", "redacted_transcript":
@@ -194,12 +240,14 @@ final class ElevenLabsStream: Transcriber {
         case "committed_transcript_with_timestamps", "diarized_transcript", "speakers_merged", "speaker_names", "committed_transcript_entities": break
         case "commit_throttled":
             span?.addEvent(name: "commit_throttled")
-            pendingCommit = nil
             if finishing, stopCommitSent {
-                if !automatic || !partial.isEmpty { return end(nil) }
-            } else {
-                requestStopCommit()
+                retryStopCommit()
+                return
             }
+            rollingTimeout?.cancel()
+            pendingCommit = nil
+            nextRollingCommit = Date().addingTimeInterval(1.2)
+            requestStopCommit()
         case "auth_error", "quota_exceeded", "unaccepted_terms", "invalid_request", "input_error", "chunk_size_exceeded":
             return fail(type, retryable: false)
         case "insufficient_audio_activity":
@@ -233,6 +281,8 @@ final class ElevenLabsStream: Transcriber {
         ended = true
         deadline?.cancel()
         settle?.cancel()
+        rollingTimeout?.cancel()
+        retryCommit?.cancel()
         flush(force: true)
         var problem = problem
         if redacting, !partial.isEmpty {

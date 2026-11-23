@@ -38,7 +38,10 @@ final class Dictation {
     private var failures = 0        // connection failures in this dictation; never reset, so retries always end
     private var renewedLogin = false
     private var catchingUp = false  // a replay is running; its transcript is still behind what was shown
-    private var shown = ""           // the best text so far
+    private var shown = ""           // the best text so far, independent of preview smoothing
+    private var displayed = ""
+    private var previewShortenedAt: Date?
+    private var previewSettled = false
     private var capturing = true    // the microphone is still open; it closes shortly after `stop()`
     private var finishedAt: Date?   // when the provider was told there is no more audio
     private var finishedMono: UInt64?
@@ -143,16 +146,15 @@ final class Dictation {
         }
         stream.onFinal = { [weak self, weak stream] text, covered in
             guard let self, self.stream === stream else { return }
-            // Keep the part of the interim text this final did not reach, until the next
-            // interim replaces it. Otherwise those words would blink out of the pill.
-            self.live = self.live.hasPrefix(text) ? String(self.live.dropFirst(text.count)).trimmingCharacters(in: .whitespaces) : ""
-            if !text.isEmpty { self.finals.append(text) }
+            if !text.isEmpty {
+                self.finals.append(text)
+                self.previewSettled = true
+            }
             // The audio behind this final is no longer needed for a replay.
             let cut = min(max(covered - self.trimmed, 0), self.sent)
             self.audio = self.audio.subdata(in: cut..<self.audio.count)
             self.sent -= cut
             self.trimmed += cut
-            self.render()
         }
         stream.onStopRequested = { [weak self] in self?.stop() }
         stream.onEnd = { [weak self, weak stream] problem in
@@ -175,20 +177,21 @@ final class Dictation {
                 stop()
             }
         }
+        if previewShortenedAt != nil { paintPreview() }
         guard let stream else { return }
         // Dead connection: no sign of life for 5 s, not even the answer to a ping.
         // Handshake stall: the socket is open, yet the provider did not become ready within 10 s.
         // Stuck transcription: all audio was handed over and the server then said nothing for 10 s.
         let now = Date()
         let notReady = !stream.isReady && now.timeIntervalSince(stream.startedAt) > 10
-        let stuck = finishedAt.map { now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
+        let stuck = finishedAt.map { now.timeIntervalSince($0) > 15 || now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
         if now.timeIntervalSince(stream.lastActivity) > 5 || notReady || stuck {
             return stream.end(Problem(message: "No response from \(provider.title)"))
         }
         guard stream.isReady else { return }
         // A limited number of messages per tick, so a replay after a reconnect is paced, not dumped at once.
         var budget = provider.framesPerTick
-        while budget > 0, sent < audio.count, audio.count - sent >= provider.frameBytes || !capturing {
+        while budget > 0, stream.acceptsAudio, sent < audio.count, audio.count - sent >= provider.frameBytes || !capturing {
             let count = min(provider.frameBytes, audio.count - sent)
             stream.send(audio: audio.subdata(in: sent..<sent + count))
             sent += count
@@ -209,7 +212,22 @@ final class Dictation {
             catchingUp = false
         }
         shown = text
-        onText?(text)
+        paintPreview()
+    }
+
+    private func paintPreview() {
+        if provider == .elevenlabs, !previewSettled, shown.count < displayed.count {
+            // Let a transient shorter hypothesis recover before the pill rewinds.
+            let now = Date()
+            let since = previewShortenedAt ?? now
+            previewShortenedAt = since
+            guard now.timeIntervalSince(since) >= 1.2 else { return }
+        }
+        previewShortenedAt = nil
+        previewSettled = false
+        guard displayed != shown else { return }
+        displayed = shown
+        onText?(shown)
     }
 
     private var currentText: String {

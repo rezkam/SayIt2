@@ -5,6 +5,11 @@ import Foundation
 final class DeepgramStream: Transcriber {
     private let config: Config
     private var finishing = false
+    private var coveredUntil = 0.0
+    private var draft = ""
+    private var draftStart = 0.0
+    private var draftEnd = 0.0
+    private var draftWords: [[String: Any]] = []
 
     init(config: Config) {
         self.config = config
@@ -35,19 +40,35 @@ final class DeepgramStream: Transcriber {
         case "Results":
             // A final replaces the live text for its stretch of audio: it is usually the better text.
             guard let channel = message["channel"] as? [String: Any],
-                  let text = (channel["alternatives"] as? [[String: Any]])?.first?["transcript"] as? String else { return }
+                  let alternative = (channel["alternatives"] as? [[String: Any]])?.first,
+                  let raw = alternative["transcript"] as? String else { return }
+            let text = raw.allSatisfy(\.isWhitespace) ? "" : raw
+            let start = message["start"] as? Double ?? 0
+            let end = start + (message["duration"] as? Double ?? 0)
             if message["is_final"] as? Bool == true {
-                let seconds = (message["start"] as? Double ?? 0) + (message["duration"] as? Double ?? 0)
-                onFinal?(text, Int((seconds * Provider.deepgram.sampleRate).rounded()) * 2)
-            } else {
-                onInterim?(text)
+                // Silence can produce an empty result. It cannot confirm a draft with words.
+                if text.isEmpty, !draft.isEmpty, end > draftStart { return }
+                coveredUntil = max(coveredUntil, end)
+                if draftEnd <= coveredUntil + 0.02 { draft = "" }
+                onFinal?(text, Int((coveredUntil * Provider.deepgram.sampleRate).rounded()) * 2)
+            } else if !text.isEmpty, end > coveredUntil {
+                draft = text
+                draftStart = start
+                draftEnd = end
+                draftWords = alternative["words"] as? [[String: Any]] ?? []
             }
+            if draftStart < coveredUntil - 0.02, !draft.isEmpty {
+                // Keep unconfirmed words after the final's audio boundary, not a string suffix.
+                draftWords = draftWords.filter { ($0["start"] as? Double ?? 0) >= coveredUntil - 0.02 }
+                draft = draftWords.compactMap { $0["punctuated_word"] as? String ?? $0["word"] as? String }.joined(separator: " ")
+                draftStart = coveredUntil
+            }
+            onInterim?(draft)
         case "Metadata":
-            // Sent once everything after CloseStream has been flushed. Finals are now the whole
-            // transcript, so interim text that no final confirmed is dropped.
+            // CloseStream flushes final results before Metadata. An unconfirmed draft is
+            // still useful as an error fallback, but is not a successful final.
             if finishing {
-                onInterim?("")
-                end(nil)
+                end(draft.isEmpty ? nil : Problem(message: "Deepgram did not confirm the final text", retryable: false))
             }
         default:
             break

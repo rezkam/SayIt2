@@ -94,8 +94,10 @@ jq -r '.days | to_entries[] | .key as $d | .value.byModel | to_entries[] | "\($d
 
 ## Limits
 
-- Deepgram's final text sometimes leaves out a word or a few that its live text showed; the
-  final text is used as is.
+- Live text is provisional. ElevenLabs may shorten a draft as it revises it; the pill holds
+  brief contractions. A nonempty final from any provider can still be shorter and is used as
+  returned. On stop, SayIt2 waits for each provider's final response before typing. If the
+  provider fails or never confirms it, SayIt2 inserts what it has and shows a short error.
 - If you move the cursor before the text arrives, it is inserted at the new position.
 - If the original text field no longer exists when the text arrives, it is inserted into whatever
   field of that app has focus.

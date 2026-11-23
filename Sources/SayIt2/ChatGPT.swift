@@ -6,7 +6,8 @@ final class ChatGPTStream: Transcriber {
     private var ready = false
     private var finishing = false
     private var utterances: [String] = []       // utterance ids in arrival order
-    private var texts: [String: String] = [:]   // latest revision per utterance
+    private var drafts: [String: String] = [:]
+    private var finals: [String: String] = [:]
 
     override var isReady: Bool { ready }
 
@@ -56,15 +57,21 @@ final class ChatGPTStream: Transcriber {
         case "session.started":
             ready = true
         case "transcript.segment", "transcript.final":
-            // Each message carries the whole utterance so far; a newer revision replaces the older one.
-            guard let id = message["utterance_id"] as? String, let text = message["text"] as? String else { return }
-            if texts[id] == nil { utterances.append(id) }
-            texts[id] = text
-            onInterim?(utterances.compactMap { texts[$0]?.trimmingCharacters(in: .whitespaces) }.joined(separator: " "))
+            guard let id = message["utterance_id"] as? String, let raw = message["text"] as? String else { return }
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !utterances.contains(id) { utterances.append(id) }
+            if !text.isEmpty {
+                if message["type"] as? String == "transcript.final" { finals[id] = text }
+                else if finals[id] == nil { drafts[id] = text }
+            }
+            onInterim?(utterances.compactMap { finals[$0] ?? drafts[$0] }.joined(separator: " "))
         case "session.updated":
             // Closed before all audio was handed over means the server gave up, not that it is done.
             if (message["session"] as? [String: Any])?["status"] as? String == "closed" {
-                end(finishing ? nil : Problem(message: "ChatGPT closed the session"))
+                if !finishing { end(Problem(message: "ChatGPT closed the session")) }
+                else if drafts.keys.contains(where: { finals[$0] == nil }) {
+                    end(Problem(message: "ChatGPT did not confirm the final text", retryable: false))
+                } else { end(nil) }
             }
         case "session.stop_requested":
             onStopRequested?()
