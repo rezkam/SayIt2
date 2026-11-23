@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SAYIT2 // DASHBOARD</title>
+<link rel="stylesheet" href="./uPlot.min.css">
 <style>
   :root {
     --bg: #0a0a0a;
@@ -246,43 +247,83 @@
   .h-bar.peak { background: var(--yellow); box-shadow: 0 0 8px rgba(255, 222, 0, 0.35); }
   .h-lbl { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 5px; }
 
-  /* Performance */
-  .c-chatgpt { --pc: #ffde00; }
-  .c-deepgram { --pc: #38bdf8; }
-  .c-elevenlabs { --pc: #f472b6; }
-  .c-unknown { --pc: #8a8a8a; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pc); margin-right: 7px; }
-  .pcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  /* Observability */
+  .obs-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  #obs-providers button { display: inline-flex; align-items: center; }
+  #obs-providers button:not(.active) .dot { opacity: 0.3; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex: none; }
+  .btn.small { padding: 3px 8px; font-size: 10.5px; }
+  .small { font-size: 11px; }
+  .pcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .pcard { background: linear-gradient(180deg, #171717 0%, #111111 100%); border: 1px solid var(--border); border-top: 2px solid var(--pc); border-radius: 8px; padding: 14px 16px; }
-  .pcard .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .pcard .label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; display: flex; align-items: center; }
   .pcard .big { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 700; color: var(--pc); margin: 4px 0 8px; }
-  .pcard .big small { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .pcard .big small { font-size: 10px; color: var(--muted); font-weight: 400; margin-left: 6px; letter-spacing: 0.06em; }
   .pcard dl { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 0; font-family: var(--mono); font-size: 11.5px; }
   .pcard dt { color: var(--muted); }
   .pcard dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .verdict { font-family: var(--mono); font-size: 14px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  ul.takeaways { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+  ul.takeaways li { padding: 8px 12px; border-radius: 6px; background: #101010; border: 1px solid var(--border); font-size: 13px; }
+  ul.takeaways li strong { display: inline-flex; align-items: center; }
+  ul.takeaways .vals { display: block; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+  ul.takeaways .vals .dot { width: 6px; height: 6px; margin-right: 4px; }
   .table-scroll { overflow-x: auto; }
   table.grid { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
-  table.grid th, table.grid td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
-  table.grid th:first-child, table.grid td:first-child { text-align: left; }
+  table.grid th, table.grid td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; vertical-align: top; }
+  table.grid th:first-child, table.grid td:first-child, table.grid .left { text-align: left; }
   table.grid th { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-  table.grid td .n { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+  table.grid th .dot { width: 7px; height: 7px; }
+  table.grid td .n { display: block; color: var(--muted); font-size: 10px; }
   table.grid td.best { color: var(--yellow); }
-  table.grid .left { text-align: left; }
+  table.grid td.thin { opacity: 0.55; }
+  table.grid td.wrap { white-space: normal; word-break: break-word; max-width: 420px; }
+  table.grid tr.group td { color: var(--yellow); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding-top: 14px; }
+  table.grid tr.first td { border-top: 1px solid var(--border-hi); }
   table.grid tr.click { cursor: pointer; }
   table.grid tr.click:hover td, table.grid tr.sel td { background: rgba(255, 222, 0, 0.06); }
+  table.grid.kv td { font-size: 11px; padding: 4px 8px; }
+  .info { color: var(--muted); font-size: 10px; border: 1px solid var(--border-hi); border-radius: 50%; padding: 0 4px; cursor: help; }
   .bad { color: var(--danger); }
   .good { color: var(--ok); }
-  svg.chart { width: 100%; height: auto; display: block; font-family: var(--mono); }
-  svg.chart text { fill: var(--muted); font-size: 10px; }
-  .wf-row { display: grid; grid-template-columns: 150px 1fr 70px; gap: 10px; align-items: center; font-family: var(--mono); font-size: 11.5px; margin-bottom: 4px; }
+  .warn { color: var(--yellow); }
+  .charts-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+  @media (max-width: 760px) { .charts-2 { grid-template-columns: 1fr; } }
+  .chart { min-height: 120px; }
+  .empty-chart { padding: 40px 0; text-align: center; }
+  .uplot { font-family: var(--mono); }
+  .u-legend { color: var(--muted); font-size: 11px; }
+  .u-legend .u-marker { border-radius: 50%; }
+  svg.strip { width: 100%; height: auto; display: block; font-family: var(--mono); }
+  svg.strip text { fill: var(--muted); font-size: 10px; }
+  svg.strip text.lbl { fill: var(--text); font-size: 11px; }
+  .stack-row { display: grid; grid-template-columns: 140px 1fr 60px; gap: 10px; align-items: center; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; }
+  .stack-label { display: flex; align-items: center; }
+  .stack { display: flex; height: 16px; border-radius: 3px; overflow: hidden; background: #1a1a1a; }
+  .legend-row .dot { width: 7px; height: 7px; margin-right: 5px; }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .note strong { color: var(--text); }
+  #trace-detail.trace-open { margin-bottom: 16px; padding: 16px 18px; border-radius: 6px; background: #0f0f0f; border: 1px solid rgba(255, 222, 0, 0.42); }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 14px; }
+  .chip { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #181818; border: 1px solid var(--border-hi); }
+  .chip b { color: var(--yellow); font-weight: 600; }
+  .arrow { color: var(--muted); font-size: 11px; }
+  .wf-row { display: grid; grid-template-columns: 150px 1fr 70px; gap: 10px; align-items: center; font-family: var(--mono); font-size: 11.5px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+  .wf-row:hover, .wf-row.sel { background: rgba(255, 222, 0, 0.06); }
+  .wf-row .child { padding-left: 14px; }
   .wf-track { position: relative; height: 16px; background: #181818; border-radius: 3px; }
-  .wf-bar { position: absolute; top: 3px; height: 10px; border-radius: 2px; background: var(--pc); opacity: 0.85; }
+  .wf-bar { position: absolute; top: 3px; height: 10px; border-radius: 2px; opacity: 0.85; }
   .wf-bar.err { background: var(--danger); }
   .wf-tick { position: absolute; top: 0; width: 2px; height: 16px; background: #fff; }
-  .wf-note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin: 0 0 8px 160px; }
-  .logs { margin-top: 12px; max-height: 280px; overflow: auto; font: 11.5px/1.5 var(--mono); background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+  .trace-info { margin-top: 14px; }
+  .trace-info h3 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+  .logs { max-height: 320px; overflow: auto; font: 11.5px/1.5 var(--mono); background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
   .sev-WARN { color: var(--yellow); }
   .sev-ERROR { color: var(--danger); }
+  #view-observe select, #view-observe input[type="text"], #view-observe input[type="number"] { width: auto; padding: 5px 8px; font-size: 11.5px; }
+  #tr-text { min-width: 240px; }
+  #q-sql { min-height: 170px; margin-bottom: 8px; font-size: 12px; }
+  .q-meta { margin: 10px 0 6px; }
 
   /* Settings */
   .provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
@@ -409,7 +450,7 @@
     </div>
     <nav class="nav-tabs" aria-label="Dashboard sections">
       <button type="button" data-tab="stats" class="active">Stats</button>
-      <button type="button" data-tab="perf">Performance</button>
+      <button type="button" data-tab="observe">Observability</button>
       <button type="button" data-tab="settings">Settings</button>
     </nav>
     <span class="live-badge" id="live-badge"><span class="live-dot"></span><span id="live-text">CONNECTING</span></span>
@@ -490,73 +531,32 @@
     </div>
   </section>
 
-  <!-- PERFORMANCE VIEW (read from the local traces) -->
-  <section id="view-perf" class="view">
-    <div class="toolbar">
-      <span class="muted mono" id="perf-subtitle">LOADING LOCAL TRACES...</span>
+  <!-- OBSERVABILITY VIEW (observability.js, over the local telemetry database) -->
+  <section id="view-observe" class="view">
+    <div class="obs-bar">
+      <div class="seg" id="obs-pages">
+        <button type="button" data-page="overview" class="active">Overview</button>
+        <button type="button" data-page="latency">Latency</button>
+        <button type="button" data-page="traffic">Traffic</button>
+        <button type="button" data-page="errors">Errors</button>
+        <button type="button" data-page="saturation">Saturation</button>
+        <button type="button" data-page="speech">Speech</button>
+        <button type="button" data-page="traces">Traces</button>
+        <button type="button" data-page="metrics">Metrics</button>
+        <button type="button" data-page="query">SQL</button>
+      </div>
       <div class="row">
-        <div class="seg" id="perf-window">
-          <button type="button" data-window="1">24H</button>
-          <button type="button" data-window="7" class="active">7D</button>
-          <button type="button" data-window="30">30D</button>
-          <button type="button" data-window="0">All</button>
-        </div>
-        <div class="seg" id="perf-metric"></div>
-      </div>
-    </div>
-
-    <div class="pcards" id="perf-cards"></div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>LATENCY BY <span class="accent">STAGE</span></h2>
-        <span class="muted mono">MEDIAN / P95 OF COMPLETED SESSIONS, FASTEST IN YELLOW</span>
-      </div>
-      <div class="table-scroll" id="perf-latency"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2 id="perf-dist-title">DISTRIBUTION</h2>
-        <span class="muted mono">EVERY SESSION AS A DOT, LINES AT MEDIAN AND P95</span>
-      </div>
-      <div id="perf-dist"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2 id="perf-trend-title">TREND</h2>
-        <span class="muted mono" id="perf-trend-sub">MEDIAN PER DAY</span>
-      </div>
-      <div id="perf-trend"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head"><h2>RELIABILITY &amp; <span class="accent">THROUGHPUT</span></h2></div>
-      <div class="table-scroll" id="perf-reliability"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>FAILURES &amp; <span class="accent">RETRIES</span></h2>
-        <span class="muted mono">BY PROVIDER AND ERROR TYPE</span>
-      </div>
-      <div class="table-scroll" id="perf-failures"></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>RECENT <span class="accent">SESSIONS</span></h2>
-        <div class="seg" id="perf-provider">
-          <button type="button" data-provider="all" class="active">All</button>
-          <button type="button" data-provider="chatgpt">ChatGPT</button>
-          <button type="button" data-provider="deepgram">Deepgram</button>
-          <button type="button" data-provider="elevenlabs">ElevenLabs</button>
+        <div class="seg" id="obs-providers" title="Click to show or hide a provider; Option-click to show it alone"></div>
+        <div class="seg" id="obs-range">
+          <button type="button" data-range="1">24H</button>
+          <button type="button" data-range="7" class="active">7D</button>
+          <button type="button" data-range="30">30D</button>
+          <button type="button" data-range="90">90D</button>
         </div>
       </div>
-      <div class="table-scroll" id="perf-sessions"></div>
-      <div class="day-detail" id="perf-detail"></div>
     </div>
+    <div class="toolbar"><span class="muted mono" id="obs-subtitle">LOADING TELEMETRY...</span></div>
+    <div id="obs-page"></div>
   </section>
 
   <!-- SETTINGS VIEW -->
@@ -838,7 +838,7 @@
           <h2>LOCAL <span class="accent">TELEMETRY</span></h2>
           <span class="muted mono">~/.local/share/sayit2/</span>
         </div>
-        <p class="muted">Traces, metrics, and logs are written as OTLP/JSON lines on this Mac only and feed the Performance tab. Nothing is sent anywhere.</p>
+        <p class="muted">Traces, metric samples, and logs go into <code>~/.local/share/sayit2/telemetry.sqlite</code> on this Mac only (kept 90 days) and feed the Observability tab. Nothing is sent anywhere.</p>
         <div class="toggles top">
           <label class="toggle-row">
             <div class="toggle-text">
@@ -864,6 +864,8 @@
 <div id="tip"></div>
 <div id="toast"></div>
 
+<script src="./uPlot.iife.min.js"></script>
+<script src="./observability.js"></script>
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -908,12 +910,12 @@ function showToast(msg, isErr) {
 
 // --- Tabs ---
 function setTab(tab) {
-  activeTab = ["stats", "perf", "settings"].includes(tab) ? tab : "stats";
+  activeTab = ["stats", "observe", "settings"].includes(tab) ? tab : "stats";
   document.querySelectorAll(".nav-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === activeTab));
-  for (const t of ["stats", "perf", "settings"]) document.getElementById("view-" + t).classList.toggle("active", activeTab === t);
+  for (const t of ["stats", "observe", "settings"]) document.getElementById("view-" + t).classList.toggle("active", activeTab === t);
   if (location.hash !== "#" + activeTab) history.replaceState(null, "", "#" + activeTab);
   if (activeTab === "settings" && !dirty) loadConfig();
-  if (activeTab === "perf") pollPerf();
+  if (activeTab === "observe") obsActivate();
 }
 function setSettingsSub(sub) {
   document.querySelectorAll("#settings-sub-seg button").forEach(b => {
@@ -1308,342 +1310,11 @@ async function pollStats() {
   }
 }
 
-// --- Performance (computed in the browser from the local traces) ---
-const PROVIDERS = { chatgpt: "ChatGPT", deepgram: "Deepgram", elevenlabs: "ElevenLabs" };
-const STAGES = [
-  { key: "connect", label: "Connect", hint: "Connection request to finished WebSocket handshake (recorded from v0.6.15)" },
-  { key: "first", label: "First words", hint: "Socket open to the first live words (includes when you start speaking)" },
-  { key: "finish", label: "Finish", hint: "Key released to the provider's final text" },
-  { key: "insert", label: "Typing", hint: "Final text typed into the field (sessions without a focus wait)" },
-  { key: "done", label: "Release to typed", hint: "Finish plus typing" },
-];
-let perfSessions = [], perfEtag = null, perfWindow = 7, perfMetric = "finish", perfProvider = "all", perfSelected = null;
-
-const pclass = p => "c-" + (PROVIDERS[p] ? p : "unknown");
-const pname = p => PROVIDERS[p] || p;
-const attrMap = list => {
-  const o = {};
-  for (const a of list || []) {
-    const v = a.value || {};
-    o[a.key] = "stringValue" in v ? v.stringValue : "boolValue" in v ? v.boolValue
-      : "intValue" in v ? Number(v.intValue) : "doubleValue" in v ? Number(v.doubleValue) : undefined;
-  }
-  return o;
-};
-const nanoSec = s => Number(BigInt(s || "0") / 1000n) / 1e6;
-const quant = (arr, p) => {
-  if (!arr.length) return null;
-  const s = [...arr].sort((a, b) => a - b), i = (s.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
-  return s[lo] + (s[hi] - s[lo]) * (i - lo);
-};
-const fmtSec = v => v == null ? "-" : v < 1 ? Math.round(v * 1000) + " ms" : v < 10 ? v.toFixed(2) + " s" : v.toFixed(1) + " s";
-const pct = (a, b) => b > 0 ? Math.round((a / b) * 100) + "%" : "-";
-const when = t => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-const localDay = t => { const d = new Date(t * 1000); return isoDate(d.getFullYear(), d.getMonth(), d.getDate()); };
-
-function parseTraces(text) {
-  const byTrace = new Map();
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let doc;
-    try { doc = JSON.parse(line); } catch (_) { continue; }
-    for (const rs of doc.resourceSpans || []) for (const ss of rs.scopeSpans || []) for (const s of ss.spans || []) {
-      const span = {
-        name: s.name, parent: s.parentSpanId || null, start: nanoSec(s.startTimeUnixNano), end: nanoSec(s.endTimeUnixNano),
-        attrs: attrMap(s.attributes), status: s.status?.message || "",
-        events: (s.events || []).map(e => ({ name: e.name, t: nanoSec(e.timeUnixNano) })),
-      };
-      if (!byTrace.has(s.traceId)) byTrace.set(s.traceId, []);
-      byTrace.get(s.traceId).push(span);
-    }
-  }
-  const sessions = [];
-  for (const [traceId, spans] of byTrace) {
-    const root = spans.find(s => s.name === "sayit2.dictation" && !s.parent);
-    if (!root) continue;
-    const a = root.attrs, ev = (s, n) => s?.events.find(e => e.name === n)?.t;
-    const streams = spans.filter(s => s.name === "sayit2.stream").sort((x, y) => x.start - y.start);
-    const insert = spans.find(s => s.name === "sayit2.insert"), first = streams[0];
-    const since = (s, attr, event) => s ? (s.attrs[attr] ?? (ev(s, event) != null ? ev(s, event) - s.start : null)) : null;
-    const finish = a["sayit2.finish.seconds"] ?? null;
-    const typing = insert && !insert.attrs["sayit2.insert.waited"] ? insert.end - insert.start : null;
-    sessions.push({
-      traceId, spans, root, streams, insert,
-      provider: a["gen_ai.provider.name"] || "unknown", model: a["gen_ai.request.model"] || "",
-      start: root.start, outcome: a["sayit2.end_reason"] || "completed", error: a["error.type"] || null,
-      attempts: a["sayit2.attempts"] ?? streams.length, audio: a["sayit2.audio.seconds"] ?? 0, words: a["sayit2.text.words"] ?? 0,
-      trigger: a["sayit2.trigger_mode"] || "", micRecoveries: a["sayit2.mic.recoveries"] ?? 0,
-      waited: !!insert?.attrs["sayit2.insert.waited"],
-      lat: {
-        connect: since(first, "sayit2.stream.connect.seconds", "connected"),
-        first: since(first, "sayit2.stream.first_text.seconds", "first_text"),
-        finish, insert: typing, done: finish != null && typing != null ? finish + typing : null,
-      },
-    });
-  }
-  return sessions.sort((x, y) => y.start - x.start);
-}
-
-function perfInWindow() {
-  const from = perfWindow ? Date.now() / 1000 - perfWindow * 86400 : 0;
-  return perfSessions.filter(s => s.start >= from);
-}
-function providerOrder(list) {
-  const seen = new Set(list.map(s => s.provider));
-  return Object.keys(PROVIDERS).filter(p => seen.has(p)).concat([...seen].filter(p => !PROVIDERS[p]).sort());
-}
-// Latency is measured over completed sessions; failures are counted separately.
-const latencies = (list, key) => list.filter(s => s.outcome === "completed" && s.lat[key] != null).map(s => s.lat[key]);
-
-function renderPerf() {
-  const list = perfInWindow(), providers = providerOrder(list), byP = {};
-  for (const p of providers) byP[p] = list.filter(s => s.provider === p);
-  const oldest = perfSessions.length ? perfSessions[perfSessions.length - 1].start : null;
-  document.getElementById("perf-subtitle").textContent = fmtNum(list.length) + " SESSIONS IN WINDOW // " +
-    fmtNum(perfSessions.length) + " ON DISK" + (oldest ? " SINCE " + localDay(oldest) : "");
-  const stage = STAGES.find(s => s.key === perfMetric);
-  document.getElementById("perf-dist-title").innerHTML = esc(stage.label.toUpperCase()) + ' <span class="accent">DISTRIBUTION</span>';
-  document.getElementById("perf-trend-title").innerHTML = esc(stage.label.toUpperCase()) + ' <span class="accent">TREND</span>';
-  document.getElementById("perf-trend-sub").textContent = stage.hint.toUpperCase() + " // MEDIAN PER DAY";
-
-  if (!providers.length) {
-    const empty = '<div class="muted mono">NO SESSIONS IN THIS WINDOW</div>';
-    for (const id of ["perf-cards", "perf-latency", "perf-dist", "perf-trend", "perf-reliability", "perf-failures"]) document.getElementById(id).innerHTML = id === "perf-cards" ? "" : empty;
-  } else {
-    renderPerfCards(providers, byP);
-    renderLatencyTable(providers, byP);
-    document.getElementById("perf-dist").innerHTML = distributionSvg(providers, byP);
-    document.getElementById("perf-trend").innerHTML = trendSvg(providers, byP);
-    renderReliability(providers, byP);
-    renderFailures(list);
-  }
-  renderSessions(list);
-}
-
-function renderPerfCards(providers, byP) {
-  document.getElementById("perf-cards").innerHTML = providers.map(p => {
-    const s = byP[p], done = s.filter(x => x.outcome === "completed").length;
-    const fin = latencies(s, "finish"), med = k => fmtSec(quant(latencies(s, k), 0.5));
-    return '<div class="pcard ' + pclass(p) + '"><div class="label"><span class="dot"></span>' + esc(pname(p)) + '</div>' +
-      '<div class="big">' + fmtSec(quant(fin, 0.5)) + '<small>FINISH MEDIAN</small></div><dl>' +
-      '<dt>Finish p95</dt><dd>' + fmtSec(quant(fin, 0.95)) + '</dd>' +
-      '<dt>Connect</dt><dd>' + med("connect") + '</dd>' +
-      '<dt>First words</dt><dd>' + med("first") + '</dd>' +
-      '<dt>Typing</dt><dd>' + med("insert") + '</dd>' +
-      '<dt>Success</dt><dd>' + pct(done, s.length) + ' of ' + fmtNum(s.length) + '</dd>' +
-      '<dt>Retried</dt><dd>' + pct(s.filter(x => x.attempts > 1).length, s.length) + '</dd></dl></div>';
-  }).join("");
-}
-
-function renderLatencyTable(providers, byP) {
-  let html = '<table class="grid"><thead><tr><th>Stage</th>' +
-    providers.map(p => '<th><span class="' + pclass(p) + '"><span class="dot"></span></span>' + esc(pname(p)) + '</th>').join("") + '</tr></thead><tbody>';
-  for (const st of STAGES) {
-    const cells = providers.map(p => { const v = latencies(byP[p], st.key); return { n: v.length, med: quant(v, 0.5), p95: quant(v, 0.95) }; });
-    const best = Math.min(...cells.filter(c => c.med != null).map(c => c.med));
-    html += '<tr><td title="' + esc(st.hint) + '">' + esc(st.label) + '</td>' + cells.map(c => c.med == null ? '<td class="muted">-</td>' :
-      '<td' + (cells.length > 1 && c.med === best ? ' class="best"' : '') + '>' + fmtSec(c.med) + ' / ' + fmtSec(c.p95) + '<span class="n">n=' + c.n + '</span></td>').join("") + '</tr>';
-  }
-  document.getElementById("perf-latency").innerHTML = html + '</tbody></table>';
-}
-
-function distributionSvg(providers, byP) {
-  const W = 1000, L = 110, R = 20, rowH = 38, H = providers.length * rowH + 30;
-  const all = providers.flatMap(p => latencies(byP[p], perfMetric)).filter(v => v > 0);
-  if (!all.length) return '<div class="muted mono">NO DATA FOR THIS STAGE YET</div>';
-  const lo = Math.min(0.05, Math.min(...all)), hi = Math.max(1, Math.max(...all) * 1.1);
-  const x = v => L + (Math.log(Math.max(v, lo) / lo) / Math.log(hi / lo)) * (W - L - R);
-  let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">';
-  for (const t of [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300]) {
-    if (t < lo || t > hi) continue;
-    svg += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="0" y2="' + (H - 20) + '" stroke="#262626"/>' +
-      '<text x="' + x(t) + '" y="' + (H - 6) + '" text-anchor="middle">' + fmtSec(t) + '</text>';
-  }
-  providers.forEach((p, i) => {
-    const y = i * rowH + rowH / 2, v = latencies(byP[p], perfMetric), med = quant(v, 0.5), p95 = quant(v, 0.95);
-    svg += '<g class="' + pclass(p) + '"><text x="0" y="' + (y + 4) + '" style="fill:var(--text)">' + esc(pname(p)) + '</text>';
-    v.forEach((val, j) => {
-      const jitter = ((j * 7919) % 23 - 11) * 1.1;
-      svg += '<circle cx="' + x(val) + '" cy="' + (y + jitter) + '" r="3" style="fill:var(--pc)" opacity="0.55"><title>' + fmtSec(val) + '</title></circle>';
-    });
-    if (med != null) svg += '<line x1="' + x(med) + '" x2="' + x(med) + '" y1="' + (y - 15) + '" y2="' + (y + 15) + '" stroke="#fff" stroke-width="2"><title>median ' + fmtSec(med) + '</title></line>';
-    if (p95 != null) svg += '<line x1="' + x(p95) + '" x2="' + x(p95) + '" y1="' + (y - 15) + '" y2="' + (y + 15) + '" stroke="#fff" stroke-dasharray="3 3"><title>p95 ' + fmtSec(p95) + '</title></line>';
-    svg += '</g>';
-  });
-  return svg + '</svg>';
-}
-
-function trendSvg(providers, byP) {
-  const series = providers.map(p => {
-    const days = {};
-    for (const s of byP[p]) if (s.outcome === "completed" && s.lat[perfMetric] != null) (days[localDay(s.start)] ||= []).push(s.lat[perfMetric]);
-    return { p, points: Object.keys(days).sort().map(d => ({ d, v: quant(days[d], 0.5), n: days[d].length })) };
-  });
-  const dayKeys = [...new Set(series.flatMap(s => s.points.map(pt => pt.d)))].sort();
-  if (!dayKeys.length) return '<div class="muted mono">NO DATA FOR THIS STAGE YET</div>';
-  const W = 1000, H = 220, L = 56, R = 20, T = 12, B = 28;
-  const maxV = Math.max(...series.flatMap(s => s.points.map(pt => pt.v))) * 1.15 || 1;
-  const x = d => dayKeys.length === 1 ? (L + W - R) / 2 : L + (dayKeys.indexOf(d) / (dayKeys.length - 1)) * (W - L - R);
-  const y = v => T + (1 - v / maxV) * (H - T - B);
-  let svg = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">';
-  for (let i = 0; i <= 4; i++) {
-    const v = (maxV / 4) * i;
-    svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#262626"/><text x="' + (L - 8) + '" y="' + (y(v) + 3) + '" text-anchor="end">' + fmtSec(v) + '</text>';
-  }
-  const step = Math.max(1, Math.ceil(dayKeys.length / 8));
-  dayKeys.forEach((d, i) => { if (i % step === 0 || i === dayKeys.length - 1) svg += '<text x="' + x(d) + '" y="' + (H - 8) + '" text-anchor="middle">' + d.slice(5) + '</text>'; });
-  for (const s of series) {
-    svg += '<g class="' + pclass(s.p) + '"><polyline fill="none" style="stroke:var(--pc)" stroke-width="2" points="' + s.points.map(pt => x(pt.d) + "," + y(pt.v)).join(" ") + '"/>';
-    for (const pt of s.points) svg += '<circle cx="' + x(pt.d) + '" cy="' + y(pt.v) + '" r="3.5" style="fill:var(--pc)"><title>' + esc(pname(s.p)) + ' ' + pt.d + ': ' + fmtSec(pt.v) + ' (n=' + pt.n + ')</title></circle>';
-    svg += '</g>';
-  }
-  return svg + '</svg>';
-}
-
-function renderReliability(providers, byP) {
-  const rows = providers.map(p => {
-    const s = byP[p], n = s.length, count = o => s.filter(x => x.outcome === o).length;
-    const audio = s.reduce((a, x) => a + x.audio, 0), words = s.reduce((a, x) => a + x.words, 0);
-    const failed = count("failed");
-    return '<tr><td><span class="' + pclass(p) + '"><span class="dot"></span></span>' + esc(pname(p)) + '</td><td>' + fmtNum(n) + '</td>' +
-      '<td class="good">' + pct(count("completed"), n) + '</td><td' + (failed ? ' class="bad"' : '') + '>' + pct(failed, n) + '</td>' +
-      '<td>' + pct(count("cancelled"), n) + '</td><td>' + pct(s.filter(x => x.attempts > 1).length, n) + '</td>' +
-      '<td>' + fmtNum(s.reduce((a, x) => a + x.streams.length, 0)) + '</td><td>' + fmtDuration(audio) + '</td>' +
-      '<td>' + fmtSec(n ? audio / n : null) + '</td><td>' + (audio > 0 ? Math.round(words / (audio / 60)) : "-") + '</td>' +
-      '<td>' + fmtNum(s.filter(x => x.waited).length) + '</td><td>' + fmtNum(s.reduce((a, x) => a + x.micRecoveries, 0)) + '</td></tr>';
-  });
-  document.getElementById("perf-reliability").innerHTML = '<table class="grid"><thead><tr><th>Provider</th><th>Sessions</th><th>Completed</th><th>Failed</th>' +
-    '<th>Cancelled</th><th>Retried</th><th>Attempts</th><th>Audio</th><th>Avg length</th><th>Words/min</th><th>Focus waits</th><th>Mic recoveries</th></tr></thead><tbody>' +
-    rows.join("") + '</tbody></table>';
-}
-
-function renderFailures(list) {
-  const groups = new Map();
-  const add = (provider, level, type, t, detail) => {
-    const k = provider + "|" + level + "|" + type;
-    const g = groups.get(k) || { provider, level, type, n: 0, last: 0, details: new Set() };
-    g.n++; g.last = Math.max(g.last, t); if (detail) g.details.add(detail);
-    groups.set(k, g);
-  };
-  for (const s of list) {
-    if (s.error) add(s.provider, "session", s.error, s.start, s.root.status);
-    for (const st of s.streams) {
-      const a = st.attrs;
-      if (!a["error.type"]) continue;
-      const code = [a["http.response.status_code"] && "HTTP " + a["http.response.status_code"], a["websocket.close.code"] && "WS " + a["websocket.close.code"]].filter(Boolean).join(" ");
-      add(s.provider, "attempt", a["error.type"], st.start, code);
-    }
-    for (const sp of s.spans) if (sp.name === "sayit2.auth.renew" && sp.attrs["error.type"]) add(s.provider, "sign-in", sp.attrs["error.type"], sp.start, "");
-  }
-  const rows = [...groups.values()].sort((a, b) => b.n - a.n || b.last - a.last);
-  document.getElementById("perf-failures").innerHTML = !rows.length ? '<div class="muted mono">NO FAILURES IN THIS WINDOW</div>' :
-    '<table class="grid"><thead><tr><th>Provider</th><th>Level</th><th>Error</th><th>Count</th><th>Last seen</th><th class="left">Details</th></tr></thead><tbody>' +
-    rows.map(g => '<tr><td><span class="' + pclass(g.provider) + '"><span class="dot"></span></span>' + esc(pname(g.provider)) + '</td><td>' + esc(g.level) + '</td>' +
-      '<td class="bad">' + esc(g.type) + '</td><td>' + fmtNum(g.n) + '</td><td>' + esc(when(g.last)) + '</td>' +
-      '<td class="left muted">' + esc([...g.details].slice(0, 3).join("; ").slice(0, 140)) + '</td></tr>').join("") + '</tbody></table>';
-}
-
-function renderSessions(list) {
-  const rows = list.filter(s => perfProvider === "all" || s.provider === perfProvider).slice(0, 60);
-  document.getElementById("perf-sessions").innerHTML = !rows.length ? '<div class="muted mono">NO SESSIONS IN THIS WINDOW</div>' :
-    '<table class="grid"><thead><tr><th>Time</th><th class="left">Provider</th><th>Outcome</th><th>Audio</th><th>Connect</th><th>First words</th>' +
-    '<th>Finish</th><th>Typing</th><th>Attempts</th><th>Words</th></tr></thead><tbody>' +
-    rows.map(s => '<tr class="click' + (s.traceId === perfSelected ? ' sel' : '') + '" data-trace="' + esc(s.traceId) + '"><td>' + esc(when(s.start)) + '</td>' +
-      '<td class="left"><span class="' + pclass(s.provider) + '"><span class="dot"></span></span>' + esc(pname(s.provider)) + (s.model ? '<span class="n">' + esc(s.model) + '</span>' : '') + '</td>' +
-      '<td class="' + (s.outcome === "failed" ? "bad" : s.outcome === "completed" ? "good" : "muted") + '">' + esc(s.outcome) + (s.error ? '<span class="n">' + esc(s.error) + '</span>' : '') + '</td>' +
-      '<td>' + fmtSec(s.audio) + '</td><td>' + fmtSec(s.lat.connect) + '</td><td>' + fmtSec(s.lat.first) + '</td><td>' + fmtSec(s.lat.finish) + '</td>' +
-      '<td>' + (s.waited ? '<span class="muted">waited</span>' : fmtSec(s.lat.insert)) + '</td><td>' + fmtNum(s.attempts) + '</td><td>' + fmtNum(s.words) + '</td></tr>').join("") +
-    '</tbody></table>';
-  renderSessionDetail();
-}
-
-async function renderSessionDetail() {
-  const box = document.getElementById("perf-detail"), s = perfSessions.find(x => x.traceId === perfSelected);
-  if (!s) { box.className = "day-detail"; box.innerHTML = ""; return; }
-  const t0 = s.root.start, total = Math.max(...s.spans.map(sp => sp.end)) - t0 || 1;
-  const pos = t => ((t - t0) / total) * 100;
-  const label = sp => sp.name === "sayit2.stream" ? "stream #" + (sp.attrs["sayit2.stream.attempt"] ?? s.streams.indexOf(sp) + 1) : sp.name.replace("sayit2.", "");
-  const rows = [...s.spans].sort((a, b) => a.start - b.start).map(sp => {
-    const a = sp.attrs, facts = [a["server.address"], a["http.response.status_code"] && "HTTP " + a["http.response.status_code"],
-      a["websocket.close.code"] && "WS " + a["websocket.close.code"], a["error.type"] && "error " + a["error.type"]].filter(Boolean);
-    const evs = sp.events.map(e => e.name + " +" + fmtSec(e.t - t0));
-    return '<div class="wf-row ' + pclass(s.provider) + '"><span>' + esc(label(sp)) + '</span><div class="wf-track">' +
-      '<div class="wf-bar' + (a["error.type"] ? ' err' : '') + '" style="left:' + pos(sp.start) + '%;width:' + Math.max(0.4, pos(sp.end) - pos(sp.start)) + '%"></div>' +
-      sp.events.map(e => '<div class="wf-tick" style="left:' + pos(e.t) + '%" title="' + esc(e.name + " +" + fmtSec(e.t - t0)) + '"></div>').join("") +
-      '</div><span class="mono">' + fmtSec(sp.end - sp.start) + '</span></div>' +
-      ((evs.length || facts.length) ? '<div class="wf-note">' + esc(facts.concat(evs).join("  //  ")) + '</div>' : '');
-  }).join("");
-  box.className = "day-detail open";
-  box.innerHTML = '<div class="panel-head"><div class="day-detail-title">' + esc(pname(s.provider) + " " + s.model + " // " + when(s.start)) + '</div>' +
-    '<button type="button" class="btn" data-close-detail>Close</button></div>' + rows + '<div class="logs" id="perf-logs">LOADING LOGS...</div>';
-  try {
-    const res = await fetch("./logs/" + s.traceId, { cache: "no-store" });
-    const logs = (await res.text()).split("\n").filter(Boolean).flatMap(l => {
-      try { return JSON.parse(l).resourceLogs.flatMap(r => r.scopeLogs.flatMap(sl => sl.logRecords)); } catch (_) { return []; }
-    }).sort((a, b) => nanoSec(a.timeUnixNano) - nanoSec(b.timeUnixNano));
-    const el = document.getElementById("perf-logs");
-    if (el && perfSelected === s.traceId) el.innerHTML = !logs.length ? "NO LOGS FOR THIS SESSION" : logs.map(r =>
-      '<div class="sev-' + esc(r.severityText || "INFO") + '">+' + fmtSec(nanoSec(r.timeUnixNano) - t0) + " " + esc(r.severityText || "INFO") + " " +
-      esc(r.eventName ? r.eventName + ": " : "") + esc(r.body?.stringValue ?? "") + '</div>').join("");
-  } catch (_) {
-    const el = document.getElementById("perf-logs");
-    if (el) el.textContent = "COULD NOT READ LOGS";
-  }
-}
-
-async function pollPerf() {
-  if (document.hidden || activeTab !== "perf") return;
-  try {
-    const res = await fetch("./traces.jsonl", { cache: "no-store", headers: perfEtag ? { "If-None-Match": perfEtag } : {} });
-    if (res.status === 200) {
-      perfEtag = res.headers.get("ETag");
-      perfSessions = parseTraces(await res.text());
-      renderPerf();
-    } else if (res.status !== 304) throw new Error(String(res.status));
-  } catch (_) {
-    document.getElementById("perf-subtitle").textContent = "COULD NOT READ LOCAL TRACES";
-  }
-}
-
 // --- Wiring ---
 document.querySelectorAll(".nav-tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 document.querySelectorAll("#settings-sub-seg button").forEach(b => b.onclick = () => setSettingsSub(b.dataset.sub));
 document.querySelectorAll("[data-settings-link]").forEach(b => b.onclick = () => setSettingsSub(b.dataset.settingsLink));
-document.getElementById("perf-metric").innerHTML = STAGES.map(st =>
-  '<button type="button" data-metric="' + st.key + '" title="' + esc(st.hint) + '"' + (st.key === perfMetric ? ' class="active"' : '') + '>' + esc(st.label) + '</button>').join("");
-for (const [id, set] of [["perf-window", b => { perfWindow = Number(b.dataset.window); }], ["perf-metric", b => { perfMetric = b.dataset.metric; }],
-                         ["perf-provider", b => { perfProvider = b.dataset.provider; }]]) {
-  document.querySelectorAll("#" + id + " button").forEach(btn => btn.onclick = () => {
-    document.querySelectorAll("#" + id + " button").forEach(b => b.classList.toggle("active", b === btn));
-    set(btn); renderPerf();
-  });
-}
-document.getElementById("perf-sessions").onclick = e => {
-  const row = e.target.closest("tr[data-trace]");
-  if (!row) return;
-  perfSelected = perfSelected === row.dataset.trace ? null : row.dataset.trace;
-  renderSessions(perfInWindow());
-  if (perfSelected) document.getElementById("perf-detail").scrollIntoView({ behavior: "smooth", block: "start" });
-};
-document.getElementById("perf-detail").onclick = e => {
-  if (e.target.closest("[data-close-detail]")) { perfSelected = null; renderSessions(perfInWindow()); }
-};
-document.querySelectorAll("#metric-seg button").forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll("#metric-seg button").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active"); selectedMetric = btn.dataset.metric; renderStats();
-  };
-});
-document.getElementById("day-jump").onchange = e => { if (e.target.value) selectDay(e.target.value); };
-document.getElementById("btn-latest-day").onclick = () => {
-  const ks = activeDayKeys();
-  if (ks.length) selectDay(ks[ks.length - 1]);
-};
-document.getElementById("day-detail").onclick = e => {
-  const btn = e.target.closest("button[data-day]");
-  if (btn && !btn.disabled) selectDay(btn.dataset.day || null);
-};
-
+obsWire();
 document.querySelectorAll(".provider-card").forEach(card => {
   card.onclick = () => saveUpdates({ provider: [card.dataset.provider] }, "PROVIDER -> " + card.dataset.provider.toUpperCase());
 });
@@ -1674,12 +1345,12 @@ window.addEventListener("keydown", e => {
   }
 });
 window.addEventListener("hashchange", () => setTab(location.hash.slice(1)));
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollStats(); pollPerf(); if (activeTab === "settings" && !dirty) loadConfig(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollStats(); obsPoll(); if (activeTab === "settings" && !dirty) loadConfig(); } });
 
 setSettingsSub("providers");
 setTab(location.hash.slice(1) || "stats");
 pollStats();
-setInterval(() => { pollStats(); pollPerf(); }, 3000);
+setInterval(() => { pollStats(); obsPoll(); }, 3000);
 </script>
 </body>
 </html>

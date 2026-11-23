@@ -49,6 +49,12 @@ final class Dictation {
     private var sawAudio = false
     private var captured = 0        // audio bytes recorded, for the log
     private var ended = false
+    // Streaming signals for the dictation span.
+    private var stoppedAt: Date?
+    private var shownAtStop = ""
+    private var maxBacklog = 0      // most unsent audio bytes at once
+    private var partials = 0
+    private var revisions = 0       // live text that rewrote earlier words instead of extending them
 
     init(config: Config, handsFree: Bool, typist: Typist) throws {
         self.config = config
@@ -121,6 +127,8 @@ final class Dictation {
     func stop() {
         guard isRecording else { return }
         isRecording = false
+        stoppedAt = Date()
+        shownAtStop = shown
         span.addEvent(name: "recording_stopped")
         onStopped?()
         // The end of the last word is still travelling through the audio buffers when the key
@@ -157,6 +165,7 @@ final class Dictation {
             stream.span?.setAttribute(key: "gen_ai.request.model", value: model)
         }
         stream.span?.setAttribute(key: "sayit2.stream.attempt", value: attempts)
+        if attempts > 1 { stream.span?.setAttribute(key: "sayit2.stream.replay.seconds", value: seconds(audio.count)) }
         stream.logTranscripts = config.telemetryTranscripts
         self.stream = stream
         sent = 0
@@ -167,6 +176,10 @@ final class Dictation {
 
         stream.onInterim = { [weak self, weak stream] text in
             guard let self, self.stream === stream else { return }
+            if !text.isEmpty {
+                self.partials += 1
+                if !self.live.isEmpty, !text.hasPrefix(self.live) { self.revisions += 1 }
+            }
             self.live = text
             self.render()
         }
@@ -204,6 +217,8 @@ final class Dictation {
             }
         }
         if previewShortenedAt != nil { paintPreview() }
+        // Saturation: audio waiting to go out, including what a reconnect must replay.
+        maxBacklog = max(maxBacklog, audio.count - sent)
         guard let stream else { return }
         // Dead connection: no sign of life for 5 s, not even the answer to a ping.
         // Handshake stall: the socket is open, yet the provider did not become ready within 10 s.
@@ -220,6 +235,7 @@ final class Dictation {
         var budget = provider.framesPerTick
         while budget > 0, stream.acceptsAudio, sent < audio.count, audio.count - sent >= provider.frameBytes || !capturing {
             let count = min(provider.frameBytes, audio.count - sent)
+            stream.noteAudioSent()
             stream.send(audio: audio.subdata(in: sent..<sent + count))
             sent += count
             budget -= 1
@@ -307,8 +323,10 @@ final class Dictation {
         let raw = problem != nil && catchingUp ? shown : currentText
         let text = config.replaceInFinalText(raw)
         if text != raw { span.setAttribute(key: "sayit2.text.replaced", value: true) }
-        let seconds = Double(captured) / 2 / provider.sampleRate
-        Telemetry.event("dictation finished: \(String(format: "%.1f", seconds)) s of audio, \(text.count) characters",
+        if !raw.isEmpty, !shownAtStop.isEmpty {
+            span.setAttribute(key: "sayit2.text.final_change", value: Self.change(from: shownAtStop, to: raw))
+        }
+        Telemetry.event("dictation finished: \(String(format: "%.1f", seconds(captured))) s of audio, \(text.count) characters",
                         severity: problem == nil ? .info : .error, span: span)
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
         if config.telemetryTranscripts {
@@ -320,7 +338,11 @@ final class Dictation {
     }
 
     private func endSpan(reason: String, text: String, problem: Problem?) {
-        span.setAttribute(key: "sayit2.audio.seconds", value: Double(captured) / 2 / provider.sampleRate)
+        span.setAttribute(key: "sayit2.audio.seconds", value: seconds(captured))
+        span.setAttribute(key: "sayit2.audio.backlog.max_seconds", value: seconds(maxBacklog))
+        span.setAttribute(key: "sayit2.partials.count", value: partials)
+        span.setAttribute(key: "sayit2.partials.revisions", value: revisions)
+        if let stoppedAt { span.setAttribute(key: "sayit2.release.seconds", value: Date().timeIntervalSince(stoppedAt)) }
         span.setAttribute(key: "sayit2.text.characters", value: text.count)
         span.setAttribute(key: "sayit2.text.words", value: text.split(whereSeparator: \.isWhitespace).count)
         span.setAttribute(key: "sayit2.end_reason", value: reason)
@@ -336,6 +358,27 @@ final class Dictation {
             span.status = .ok
         }
         span.end()
+    }
+
+    private func seconds(_ bytes: Int) -> Double { Double(bytes) / 2 / provider.sampleRate }
+
+    /// Word edit distance from the live text shown at release to the final text, relative to the
+    /// final's length (case and punctuation ignored): how far the pill was from the real result.
+    private static func change(from shown: String, to final: String) -> Double {
+        let words = { (text: String) in
+            text.split(whereSeparator: \.isWhitespace).map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }.filter { !$0.isEmpty }
+        }
+        let a = words(shown), b = words(final)
+        guard !b.isEmpty else { return 0 }
+        var previous = Array(0...a.count)
+        for (j, word) in b.enumerated() {
+            var current = [j + 1]
+            for i in a.indices {
+                current.append(min(previous[i + 1] + 1, current[i] + 1, previous[i] + (a[i] == word ? 0 : 1)))
+            }
+            previous = current
+        }
+        return Double(previous[a.count]) / Double(b.count)
     }
 
     private func close() {

@@ -30,6 +30,7 @@ class Transcriber: NSObject, URLSessionWebSocketDelegate {
     private var pinger: Task<Void, Never>?
     private var ended = false
     private var sawOpen = false
+    private var audioStartedAt: Date?
     private var sawMessage = false
     private var sawText = false
     private var spanEnded = false
@@ -144,10 +145,20 @@ class Transcriber: NSObject, URLSessionWebSocketDelegate {
         }
     }
 
+    /// The first audio went out on this connection; time to first text is measured from here.
+    func noteAudioSent() {
+        guard audioStartedAt == nil else { return }
+        audioStartedAt = Date()
+        span?.addEvent(name: "audio_started")
+    }
+
     private func noteFirstText() {
         guard !sawText else { return }
         sawText = true
         span?.setAttribute(key: "sayit2.stream.first_text.seconds", value: Date().timeIntervalSince(startedAt))
+        if let audioStartedAt {
+            span?.setAttribute(key: "sayit2.stream.first_text_after_audio.seconds", value: Date().timeIntervalSince(audioStartedAt))
+        }
         span?.addEvent(name: "first_text")
     }
 

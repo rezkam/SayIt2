@@ -1,8 +1,8 @@
 import Foundation
 import os
 
-/// Local OpenTelemetry-compatible traces, derived delta metrics, logs, and daily usage rollup.
-/// Zero external telemetry SDKs and zero network calls: everything stays under ~/.local/share/sayit2/.
+/// Local OpenTelemetry-shaped traces, Prometheus-style metric samples derived from them, logs,
+/// and the daily usage rollup. No SDK and no network: everything stays under ~/.local/share/sayit2/.
 
 enum AttributeValue: Sendable {
     case string(String), bool(Bool), int(Int), double(Double)
@@ -100,14 +100,16 @@ final class Telemetry: @unchecked Sendable {
 
     private static let shared = Telemetry()
     private static let osLog = os.Logger(subsystem: "sayit2", category: "app")
-    static let durationBounds: [Double] = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600]
+    static var databaseURL: URL { dataDirectory.appendingPathComponent("telemetry.sqlite") }
 
     private let dir: URL
-    private let writer: OtelFileWriter
-    private let resource: [String: AttributeValue]
+    private let store: TelemetryStore
+    private let resource: String
 
+    /// How an ended span becomes metric samples: its duration, a count of one, or one of its
+    /// numeric attributes, each under a metric name and unit.
     private enum Rule {
-        case duration(String), count(String), attrDouble(String, String), attrInt(String, String)
+        case duration(String), count(String, unit: String), attribute(String, String, unit: String)
     }
 
     private static let metricRules: [String: (keys: [String], rules: [Rule])] = [
@@ -115,43 +117,49 @@ final class Telemetry: @unchecked Sendable {
             keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language", "error.type"],
             rules: [
                 .duration("sayit2.dictation.duration"),
-                .count("sayit2.dictation.count"),
-                .attrDouble("sayit2.audio.seconds", "sayit2.audio.duration"),
-                .attrDouble("sayit2.finish.seconds", "sayit2.finish.duration"),
-                .attrInt("sayit2.text.characters", "sayit2.text.characters"),
-                .attrInt("sayit2.text.words", "sayit2.text.words"),
+                .count("sayit2.dictation.count", unit: "{dictation}"),
+                .attribute("sayit2.audio.seconds", "sayit2.audio.duration", unit: "s"),
+                .attribute("sayit2.finish.seconds", "sayit2.finish.duration", unit: "s"),
+                .attribute("sayit2.release.seconds", "sayit2.release.duration", unit: "s"),
+                .attribute("sayit2.audio.backlog.max_seconds", "sayit2.audio.backlog.max", unit: "s"),
+                .attribute("sayit2.text.final_change", "sayit2.text.final_change", unit: "1"),
+                .attribute("sayit2.partials.revisions", "sayit2.partials.revisions", unit: "{revision}"),
+                .attribute("sayit2.text.characters", "sayit2.text.characters", unit: "{character}"),
+                .attribute("sayit2.text.words", "sayit2.text.words", unit: "{word}"),
             ]
         ),
         "sayit2.stream": (
             keys: ["gen_ai.provider.name", "gen_ai.request.model", "server.address", "error.type"],
             rules: [
                 .duration("sayit2.stream.duration"),
-                .count("sayit2.stream.count"),
-                .attrDouble("sayit2.stream.connect.seconds", "sayit2.stream.connect.duration"),
-                .attrDouble("sayit2.stream.first_text.seconds", "sayit2.stream.first_text.duration"),
+                .count("sayit2.stream.count", unit: "{connection}"),
+                .attribute("sayit2.stream.connect.seconds", "sayit2.stream.connect.duration", unit: "s"),
+                .attribute("sayit2.stream.first_text.seconds", "sayit2.stream.first_text.duration", unit: "s"),
+                .attribute("sayit2.stream.first_text_after_audio.seconds", "sayit2.stream.first_text_after_audio.duration", unit: "s"),
+                .attribute("sayit2.stream.replay.seconds", "sayit2.stream.replay.duration", unit: "s"),
             ]
         ),
         "sayit2.insert": (
             keys: ["sayit2.insert.waited"],
             rules: [
                 .duration("sayit2.insert.duration"),
-                .count("sayit2.insert.count"),
-                .attrDouble("sayit2.insert.wait.seconds", "sayit2.insert.wait.duration"),
+                .count("sayit2.insert.count", unit: "{insertion}"),
+                .attribute("sayit2.insert.wait.seconds", "sayit2.insert.wait.duration", unit: "s"),
             ]
         ),
         "sayit2.auth.renew": (
             keys: ["error.type"],
             rules: [
                 .duration("sayit2.auth.renew.duration"),
-                .count("sayit2.auth.renew.count"),
+                .count("sayit2.auth.renew.count", unit: "{renewal}"),
             ]
         ),
     ]
 
     private init() {
         dir = Self.dataDirectory
-        writer = OtelFileWriter(directory: dir.appendingPathComponent("otel"))
-        resource = Self.makeResource()
+        store = TelemetryStore(url: Self.databaseURL)
+        resource = TelemetryStore.json(Self.makeResource())
     }
 
     static func startSpan(_ name: String, parent: Span? = nil, kind: SpanKind = .internal) -> Span {
@@ -170,44 +178,42 @@ final class Telemetry: @unchecked Sendable {
             case .info: osLog.notice("\(message, privacy: .public)")
             }
         }
-        let payload = OtlpJson.log(message: message, name: name, severity: severity,
-                                   traceId: span?.traceId, spanId: span?.spanId,
-                                   attributes: attributes, resource: shared.resource, time: Date())
-        shared.writer.append(payload, to: "logs")
+        shared.store.insertLog(time: Date(), severity: severity, name: name, body: message,
+                               traceId: span?.traceId, spanId: span?.spanId, attributes: attributes)
     }
 
     /// Waits for queued telemetry writes; called when the app quits.
     static func flush() { telemetryQueue.sync {} }
 
     private func recordSpan(_ span: SpanRecord) {
-        writer.append(OtlpJson.span(span, resource: resource), to: "traces")
-        if let entry = Self.metricRules[span.name] {
-            var attrs: [String: AttributeValue] = [:]
-            for k in entry.keys { if let v = span.attributes[k] { attrs[k] = v } }
-            var metrics: [[String: Any]] = []
-            for rule in entry.rules {
-                switch rule {
-                case .duration(let name):
-                    let s = span.endTime.timeIntervalSince(span.startTime)
-                    if s.isFinite { metrics.append(OtlpJson.histogram(name: name, value: max(0, s), unit: "s", bounds: Self.durationBounds, attrs: attrs, start: span.startTime, end: span.endTime)) }
-                case .count(let name):
-                    metrics.append(OtlpJson.counter(name: name, value: 1, attrs: attrs, start: span.startTime, end: span.endTime))
-                case .attrDouble(let k, let name):
-                    if case .double(let v) = span.attributes[k], v.isFinite {
-                        metrics.append(OtlpJson.histogram(name: name, value: max(0, v), unit: "s", bounds: Self.durationBounds, attrs: attrs, start: span.startTime, end: span.endTime))
-                    }
-                case .attrInt(let k, let name):
-                    if case .int(let v) = span.attributes[k], v > 0 {
-                        metrics.append(OtlpJson.counter(name: name, value: v, attrs: attrs, start: span.startTime, end: span.endTime))
-                    }
-                }
-            }
-            if !metrics.isEmpty { writer.append(OtlpJson.metrics(metrics, resource: resource), to: "metrics") }
-        }
+        store.insert(span: span, resource: resource, samples: Self.samples(for: span))
         if span.parentSpanId == nil, span.name == "sayit2.dictation" {
             let dir = self.dir
             telemetryQueue.async { Usage.record(span, in: dir) }
         }
+    }
+
+    /// The metric samples one ended span yields, labelled with the rule's attribute keys.
+    static func samples(for span: SpanRecord) -> [(name: String, unit: String, value: Double, labels: String)] {
+        var samples: [(name: String, unit: String, value: Double, labels: String)] = []
+        if let entry = metricRules[span.name] {
+            let labels = TelemetryStore.json(span.attributes.filter { entry.keys.contains($0.key) })
+            for rule in entry.rules {
+                switch rule {
+                case .duration(let name):
+                    samples.append((name, "s", max(0, span.endTime.timeIntervalSince(span.startTime)), labels))
+                case .count(let name, let unit):
+                    samples.append((name, unit, 1, labels))
+                case .attribute(let key, let name, let unit):
+                    switch span.attributes[key] {
+                    case .double(let v) where v.isFinite: samples.append((name, unit, v, labels))
+                    case .int(let v): samples.append((name, unit, Double(v), labels))
+                    default: break
+                    }
+                }
+            }
+        }
+        return samples
     }
 
     private static func makeResource() -> [String: AttributeValue] {

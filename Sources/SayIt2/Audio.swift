@@ -32,6 +32,14 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var silentSince: Date?
     private var warnedSilent = false
     private var recoveries = 0
+    // Input quality for the dictation span, on the main queue.
+    private var peak: Int32 = 0
+    private var clipped = 0
+    private var samples = 0
+    private var energy: Double = 0
+    private var dropouts = 0
+    /// When the previous buffer should have ended, on `queue`, to notice audio the device dropped.
+    private var expectedNext: CMTime?
 
     /// Records from the system default microphone.
     func start(sampleRate: Double, span: Span? = nil) throws {
@@ -77,6 +85,13 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         queue.async { [session] in session.stopRunning() }
+        guard samples > 0 else { return }
+        // Level and clipping, as research on streaming recognition suggests: clipped or silent
+        // input explains bad text better than any provider metric.
+        span?.setAttribute(key: "sayit2.audio.peak_dbfs", value: 20 * log10(max(Double(peak), 1) / 32768))
+        span?.setAttribute(key: "sayit2.audio.rms_dbfs", value: 10 * log10(max(energy / Double(samples), 1e-10)))
+        span?.setAttribute(key: "sayit2.audio.clipped_ratio", value: Double(clipped) / Double(samples))
+        span?.setAttribute(key: "sayit2.audio.dropouts", value: dropouts)
     }
 
     /// Called regularly while recording. Lost means no audio for a while (3 s to get going at
@@ -138,6 +153,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         let activeSpan = span
         queue.async { [self] in
             session.stopRunning()
+            expectedNext = nil   // the gap while switching is not a dropout
             if let fallback, fallback != current, (try? use(fallback)) != nil {
                 let kind = Self.kind(of: fallback)
                 activeSpan?.setAttribute(key: "sayit2.mic.type", value: kind)
@@ -155,19 +171,39 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         }) == kCMBlockBufferNoErr else { return }
         var energy: Float = 0
         var silent = true
+        var peak: Int32 = 0
+        var clipped = 0
         pcm.withUnsafeBytes { bytes in
             for sample in bytes.bindMemory(to: Int16.self) {
                 if sample != 0 { silent = false }
+                let magnitude = abs(Int32(sample))
+                peak = max(peak, magnitude)
+                if magnitude >= 32767 { clipped += 1 }
                 let value = Float(sample) / 32768
                 energy += value * value
             }
         }
-        let decibels = 10 * log10(max(energy / Float(pcm.count / 2), 1e-10))
+        // A buffer that starts well after the previous one ended means the device dropped audio.
+        let start = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let duration = CMSampleBufferGetDuration(sampleBuffer)
+        var dropped = false
+        if let expected = expectedNext, start.isValid, duration.isValid,
+           CMTimeGetSeconds(start - expected) > CMTimeGetSeconds(duration) {
+            dropped = true
+        }
+        expectedNext = start.isValid && duration.isValid ? start + duration : nil
+        let count = pcm.count / 2
+        let decibels = 10 * log10(max(energy / Float(count), 1e-10))
         let level = min(max((decibels + 55) / 40, 0), 1)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastAudio = Date()
             self.silentSince = silent ? (self.silentSince ?? Date()) : nil
+            self.peak = max(self.peak, peak)
+            self.clipped += clipped
+            self.samples += count
+            self.energy += Double(energy)
+            if dropped { self.dropouts += 1 }
             self.onAudio?(pcm, level)
         }
     }

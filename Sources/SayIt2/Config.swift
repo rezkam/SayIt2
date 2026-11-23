@@ -115,7 +115,7 @@ struct Config {
         return output as String
     }
 
-    /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
+    /// When true, raw provider messages and final transcripts are written to the local logs.
     var telemetryTranscripts = false
 
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
@@ -321,9 +321,9 @@ struct Config {
 
     # ---------- Telemetry ----------
     # When true, the exact provider messages and the final text are written to
-    # ~/.local/share/sayit2/otel/logs.jsonl for debugging; off by default.
+    # the logs in ~/.local/share/sayit2/telemetry.sqlite for debugging; off by default.
     # telemetry.transcripts = false
-    # Traces, metrics, and logs always stay on this Mac; the dashboard's Performance tab reads them.
+    # Traces, metrics, and logs always stay on this Mac; the dashboard's Observability tab reads them.
 
     """
 }

@@ -10,6 +10,10 @@ final class Dashboard: @unchecked Sendable {
     private var listener: NWListener?
     private var activePort: UInt16 = 0   // read/written only on `queue`
     private let onConfigChange: @MainActor () -> Void
+    /// Files bundled next to dashboard.html: the Observability tab's script and uPlot (MIT),
+    /// the chart library Grafana uses.
+    private static let assets = ["observability.js": "text/javascript; charset=utf-8",
+                                 "uPlot.iife.min.js": "text/javascript; charset=utf-8", "uPlot.min.css": "text/css; charset=utf-8"]
 
     init(onConfigChange: @escaping @MainActor () -> Void = {}) {
         self.onConfigChange = onConfigChange
@@ -126,11 +130,23 @@ final class Dashboard: @unchecked Sendable {
         case ("GET", "usage_stats.json"):
             serveStats(conn, ifNoneMatch: headers["if-none-match"])
 
-        case ("GET", "traces.jsonl"):
-            serveTelemetry(conn, name: "traces", ifNoneMatch: headers["if-none-match"])
+        case ("GET", let name) where Self.assets[name] != nil:
+            guard let url = Bundle.main.url(forResource: name, withExtension: nil),
+                  let data = try? Data(contentsOf: url) else {
+                send(conn, "404 Not Found", "text/plain", Data()); return
+            }
+            send(conn, "200 OK", Self.assets[name], data)
 
-        case ("GET", let path) where path.hasPrefix("logs/"):
-            serveTelemetry(conn, name: "logs", traceId: String(path.dropFirst(5)))
+        case ("POST", "query"):
+            // Read-only SQL over the local telemetry database, for the Observability tab.
+            guard (headers["content-type"] ?? "").lowercased().hasPrefix("application/json"),
+                  let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let sql = obj["sql"] as? String else {
+                send(conn, "400 Bad Request", "application/json", Data()); return
+            }
+            let result = TelemetryStore.query(sql, parameters: obj["params"] as? [Any] ?? [], at: Telemetry.databaseURL)
+            let data = (try? JSONSerialization.data(withJSONObject: result)) ?? Data("{\"error\":\"encoding failed\"}".utf8)
+            send(conn, "200 OK", "application/json; charset=utf-8", data)
 
         case ("GET", "config"):
             sendConfig(conn)
@@ -167,28 +183,6 @@ final class Dashboard: @unchecked Sendable {
             }
         }
         send(conn, "200 OK", "application/json; charset=utf-8", Data("{\"schemaVersion\":1,\"days\":{}}".utf8))
-    }
-
-    /// Serves the local OTLP/JSON lines of one signal, oldest archive first, optionally only one trace's lines.
-    private func serveTelemetry(_ conn: NWConnection, name: String, ifNoneMatch: String? = nil, traceId: String? = nil) {
-        if let traceId, traceId.count != 32 || !traceId.allSatisfy(\.isHexDigit) {
-            send(conn, "400 Bad Request", "text/plain", Data()); return
-        }
-        let dir = Telemetry.dataDirectory.appendingPathComponent("otel")
-        var st = stat()
-        let etag = stat(dir.appendingPathComponent("\(name).jsonl").path, &st) == 0
-            ? "\"\(st.st_mtimespec.tv_sec)-\(st.st_mtimespec.tv_nsec)-\(st.st_size)\"" : nil
-        if traceId == nil, let etag, ifNoneMatch == etag { send(conn, "304 Not Modified", nil, Data(), etag: etag); return }
-        var body = Data()
-        for file in (1...5).reversed().map({ "\(name).\($0).jsonl" }) + ["\(name).jsonl"] {
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent(file)) else { continue }
-            guard let traceId else { body.append(data); continue }
-            let needle = Data(traceId.utf8)
-            for line in data.split(separator: 0x0A) where line.range(of: needle) != nil {
-                body.append(line); body.append(0x0A)
-            }
-        }
-        send(conn, "200 OK", "application/x-ndjson; charset=utf-8", body, etag: traceId == nil ? etag : nil)
     }
 
     private func sendConfig(_ conn: NWConnection) {
