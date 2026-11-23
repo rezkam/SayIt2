@@ -1,5 +1,5 @@
 // Observability tab: golden signals per provider, takeaways, latency, traffic, errors,
-// saturation, speech signals, a trace explorer, a Prometheus-style metrics explorer, and SQL,
+// saturation, accuracy and input signals, a trace explorer, a Prometheus-style metrics explorer, and SQL,
 // all read from the local telemetry database through the dashboard's read-only ./query endpoint.
 // Uses helpers from dashboard.html (esc, fmtDuration) at call time.
 
@@ -12,6 +12,7 @@ const OBS_MIN_N = 5;   // fewer samples than this per provider are shown but nev
 const obs = {
   page: "overview", range: 7, providers: new Set(Object.keys(OBS_PROVIDERS)),
   sessions: [], streams: [], stamp: null, specs: {}, charts: [],
+  dim: "provider", meta: {}, matrix: { col: "noise", signal: "churn" },
   latencyStage: "release", latencyPct: 0.5, trace: null, traceSpan: null,
   traceFilter: { outcome: "all", text: "", minSeconds: 0 },
   metric: { name: null, agg: "p95", by: "gen_ai.provider.name", rows: [], names: [] },
@@ -46,16 +47,12 @@ async function obsLoad(force) {
 }
 
 // --- Helpers ---
-const opName = p => OBS_PROVIDERS[p]?.name || p || "unknown";
-const opColor = p => OBS_PROVIDERS[p]?.color || "#8a8a8a";
+const opName = p => obs.meta[p]?.name || OBS_PROVIDERS[p]?.name || p || "unknown";
+const opColor = p => obs.meta[p]?.color || OBS_PROVIDERS[p]?.color || "#8a8a8a";
 const opDot = p => '<span class="dot" style="background:' + opColor(p) + '"></span>';
 const opLabel = p => opDot(p) + esc(opName(p));
 const obsSel = () => obs.sessions.filter(s => obs.providers.has(s.provider));
 const obsSelStreams = () => obs.streams.filter(s => obs.providers.has(s.provider));
-function obsProviderList(list) {
-  const seen = new Set(list.map(s => s.provider));
-  return Object.keys(OBS_PROVIDERS).filter(p => seen.has(p)).concat([...seen].filter(p => !OBS_PROVIDERS[p]).sort());
-}
 function quantile(values, p) {
   if (!values.length) return null;
   const s = [...values].sort((a, b) => a - b), i = (s.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
@@ -97,16 +94,49 @@ const SIGNALS = [
   { key: "micRecoveries", group: "saturation", label: "Mic recoveries", fmt: fmtInt, calc: l => ({ value: sum(nums(l, "mic_recoveries")), n: l.length }) },
   { key: "dropouts", group: "saturation", label: "Mic dropouts", fmt: fmtInt, calc: l => { const v = nums(l, "mic_dropouts"); return { value: v.length ? sum(v) : null, n: v.length }; } },
   { key: "renewals", group: "saturation", label: "Sign-in renewals", fmt: fmtInt, calc: l => ({ value: sum(nums(l, "auth_renewals")), n: l.length }) },
-  { key: "revisions", group: "speech", label: "Live text rewrites", hint: "Live updates that rewrote earlier words instead of extending them", better: "low", fmt: fmtPct, calc: l => { const p = l.filter(s => s.partials > 0); const total = sum(nums(p, "partials")); return { value: total ? sum(nums(p, "revisions")) / total : null, n: p.length }; }, win: "has the steadiest live text" },
+  { key: "rewritesPer100", group: "speech", label: "Rewrites per 100 words", hint: "Times the shown text changed words it had already shown, per 100 final words", better: "low", fmt: v => v == null ? "-" : v.toFixed(1), calc: l => { const v = completed(l).filter(s => s.rewrite_words != null && s.words > 0); const words = sum(nums(v, "words")); return { value: words ? 100 * sum(nums(v, "revisions")) / words : null, n: v.length }; }, win: "rewrites its text least often" },
+  { key: "churn", group: "speech", label: "Words rewritten per 100", hint: "Words changed after they were shown, per 100 final words: how much the first result differed", better: "low", fmt: v => v == null ? "-" : v.toFixed(1), calc: l => { const v = completed(l).filter(s => s.rewrite_words != null && s.words > 0); const words = sum(nums(v, "words")); return { value: words ? 100 * sum(nums(v, "rewrite_words")) / words : null, n: v.length }; }, win: "changes the fewest words after showing them" },
+  { key: "bigRewrites", group: "speech", label: "Large rewrites", hint: "Share of rewrites that changed 4 or more words at once", better: "low", fmt: fmtPct, calc: l => { const v = l.filter(s => s.rewrite_words != null); const all = sum(nums(v, "revisions")); return { value: all ? sum(nums(v, "rewrites_large")) / all : null, n: v.filter(s => s.revisions > 0).length }; }, win: "makes the fewest large rewrites" },
+  { key: "maxRewrite", group: "speech", label: "Largest rewrite p95", hint: "Words changed by the biggest single rewrite in a dictation, p95", better: "low", fmt: v => v == null ? "-" : Math.round(v) + (Math.round(v) === 1 ? " word" : " words"), calc: l => { const v = nums(completed(l), "rewrite_max_words"); return { value: quantile(v, 0.95), n: v.length }; } },
+  { key: "revisions", group: "speech", label: "Updates that rewrote", hint: "Share of text updates that changed shown words instead of only adding words", better: "low", fmt: fmtPct, calc: l => { const p = l.filter(s => s.partials > 0 && s.rewrite_words != null); const total = sum(nums(p, "partials")); return { value: total ? sum(nums(p, "revisions")) / total : null, n: p.length }; } },
   { key: "finalChange", group: "speech", label: "Final vs live text", hint: "Share of words that changed between the pill at release and the final text (average)", better: "low", fmt: fmtPct, calc: l => { const v = nums(completed(l), "final_change"); return { value: v.length ? sum(v) / v.length : null, n: v.length }; }, win: "shows live text closest to the final result" },
   { key: "wpm", group: "speech", label: "Words per minute", hint: "Median over dictations longer than 2 s", fmt: fmtInt, calc: l => { const v = completed(l).filter(s => s.audio_s > 2).map(s => s.words / (s.audio_s / 60)); return { value: quantile(v, 0.5), n: v.length }; } },
   { key: "peak", group: "speech", label: "Input peak (median)", fmt: fmtDb, calc: l => { const v = nums(l, "peak_dbfs"); return { value: quantile(v, 0.5), n: v.length }; } },
   { key: "rms", group: "speech", label: "Input loudness (median)", fmt: fmtDb, calc: l => { const v = nums(l, "rms_dbfs"); return { value: quantile(v, 0.5), n: v.length }; } },
+  { key: "snr", group: "speech", label: "Signal to noise (median)", hint: "Speech level minus background level, from the loudest and quietest 10% of the audio (an estimate)", fmt: v => v == null ? "-" : v.toFixed(1) + " dB", calc: l => { const v = nums(l, "snr_db"); return { value: quantile(v, 0.5), n: v.length }; } },
+  { key: "noiseFloor", group: "speech", label: "Background level (median)", hint: "Loudness of the quietest 10% of the audio", fmt: fmtDb, calc: l => { const v = nums(l, "noise_floor_dbfs"); return { value: quantile(v, 0.5), n: v.length }; } },
   { key: "clipping", group: "speech", label: "Clipped dictations", hint: "More than 0.1% of samples at full scale", fmt: fmtPct, calc: l => share(l.filter(s => s.clipped_ratio != null), s => s.clipped_ratio > 0.001) },
 ];
-const GROUPS = { latency: "Latency", traffic: "Traffic", errors: "Errors", saturation: "Saturation", speech: "Speech" };
+const GROUPS = { latency: "Latency", traffic: "Traffic", errors: "Errors", saturation: "Saturation", speech: "Accuracy and input" };
 const signal = key => SIGNALS.find(s => s.key === key);
-const byProvider = (list, streams) => obsProviderList(list).map(p => ({ p, list: list.filter(s => s.provider === p), streams: streams.filter(s => s.provider === p) }));
+const NOISE = { low: "Low noise", moderate: "Some noise", high: "High noise", weak_input: "Weak input" };
+const PALETTE = ["#a3e635", "#fb923c", "#c084fc", "#2dd4bf", "#60a5fa", "#f87171", "#facc15", "#e879f9"];
+const DIMS = {
+  provider: { label: "Provider", key: s => s.provider || "unknown", order: Object.keys(OBS_PROVIDERS) },
+  model: { label: "Model", key: s => (OBS_PROVIDERS[s.provider]?.name || s.provider || "unknown") + " " + (s.model || "default") },
+  mic: { label: "Microphone", key: s => s.mic_type || "unknown" },
+  noise: { label: "Noise", key: s => s.noise || "unknown", order: Object.keys(NOISE), name: k => NOISE[k] || k },
+  language: { label: "Language", key: s => s.language || "unknown" },
+};
+function dimKeys(dimKey, list) {
+  const dim = DIMS[dimKey], counts = {};
+  for (const s of list) { const k = dim.key(s); counts[k] = (counts[k] || 0) + 1; }
+  return Object.keys(counts).sort((a, b) => dim.order ? (dim.order.indexOf(a) + 1 || 99) - (dim.order.indexOf(b) + 1 || 99) : counts[b] - counts[a]);
+}
+/// Splits dictations, and their connections, into groups along a dimension (provider, model,
+/// microphone, noise, language). Names and colors of non-provider groups go into obs.meta.
+function groupBy(dimKey, list, streams) {
+  const dim = DIMS[dimKey], keyOf = new Map(list.map(s => [s.trace_id, dim.key(s)]));
+  const providerColored = new Set();
+  return dimKeys(dimKey, list).map((k, i) => {
+    // A model keeps its provider's color; a second model of the same provider gets a palette color.
+    const provider = dimKey === "model" ? list.find(s => dim.key(s) === k)?.provider : null;
+    const own = provider && OBS_PROVIDERS[provider] && !providerColored.has(provider);
+    if (own) providerColored.add(provider);
+    if (dimKey !== "provider") obs.meta[k] = { name: dim.name ? dim.name(k) : k, color: own ? OBS_PROVIDERS[provider].color : PALETTE[i % PALETTE.length] };
+    return { p: k, list: list.filter(s => dim.key(s) === k), streams: streams.filter(st => keyOf.get(st.trace_id) === k) };
+  });
+}
 
 /// Ranks providers on one signal. Only providers with enough samples are ranked.
 function rank(sig, groups) {
@@ -238,11 +268,12 @@ function takeawaysHtml(groups) {
 // --- Pages ---
 function renderObsPage() {
   obs.specs = {};
-  const list = obsSel(), streams = obsSelStreams(), groups = byProvider(list, streams);
+  obs.meta = {};
+  const list = obsSel(), streams = obsSelStreams(), groups = groupBy(obs.dim, list, streams);
   document.getElementById("obs-subtitle").textContent = list.length.toLocaleString() + " DICTATIONS, " + streams.length.toLocaleString() +
     " CONNECTIONS IN RANGE // LOCAL telemetry.sqlite";
   const el = document.getElementById("obs-page");
-  const pages = { overview: pageOverview, latency: pageLatency, traffic: pageTraffic, errors: pageErrors, saturation: pageSaturation, speech: pageSpeech, traces: pageTraces, metrics: pageMetrics, query: pageQuery };
+  const pages = { overview: pageOverview, latency: pageLatency, traffic: pageTraffic, errors: pageErrors, saturation: pageSaturation, accuracy: pageAccuracy, traces: pageTraces, metrics: pageMetrics, query: pageQuery };
   if (obs.page !== "query" || !document.getElementById("q-sql")) el.innerHTML = pages[obs.page](groups, list, streams);
   mountCharts();
   if (obs.page === "traces" && obs.trace) obsOpenTrace(obs.trace, false);
@@ -303,10 +334,11 @@ function pageLatency(groups) {
 function breakdown(groups, col, title, top = 8) {
   const keys = {};
   for (const g of groups) for (const s of g.list) { const k = s[col] || "unknown"; keys[k] = (keys[k] || 0) + 1; }
-  const order = Object.entries(keys).sort((a, b) => b[1] - a[1]).slice(0, top).map(x => x[0]);
+  const natural = col === "noise" ? Object.keys(NOISE) : null, name = k => col === "noise" ? (NOISE[k] || k) : k;
+  const order = Object.entries(keys).sort((a, b) => natural ? (natural.indexOf(a[0]) + 1 || 99) - (natural.indexOf(b[0]) + 1 || 99) : b[1] - a[1]).slice(0, top).map(x => x[0]);
   if (!order.length) return panel(title, '<div class="muted mono">NO DATA</div>');
   return panel(title, '<div class="table-scroll"><table class="grid"><thead><tr><th class="left">' + esc(col.replace(/_/g, " ")) + '</th>' + groups.map(g => '<th>' + opLabel(g.p) + '</th>').join("") + '</tr></thead><tbody>' +
-    order.map(k => '<tr><td class="left">' + esc(k) + '</td>' + groups.map(g => { const n = g.list.filter(s => (s[col] || "unknown") === k).length; return '<td>' + (n ? fmtInt(n) + '<span class="n">' + fmtPct(n / g.list.length) + '</span>' : '-') + '</td>'; }).join("") + '</tr>').join("") +
+    order.map(k => '<tr><td class="left">' + esc(name(k)) + '</td>' + groups.map(g => { const n = g.list.filter(s => (s[col] || "unknown") === k).length; return '<td>' + (n ? fmtInt(n) + '<span class="n">' + fmtPct(n / g.list.length) + '</span>' : '-') + '</td>'; }).join("") + '</tr>').join("") +
     '</tbody></table></div>');
 }
 
@@ -383,35 +415,83 @@ function pageSaturation(groups) {
     'Reconnects and replays show a flaky network or provider. Focus waits are finished text waiting for its field. Mic dropouts are gaps in the audio the device delivered.</div>';
 }
 
-function pageSpeech(groups) {
-  return panel('SPEECH <span class="accent">SIGNALS</span>', scoreTable(groups, ["first", "revisions", "finalChange", "empty", "wpm", "peak", "rms", "clipping"]),
-    { sub: "STREAMING RECOGNITION QUALITY WITHOUT A REFERENCE TRANSCRIPT" }) +
+const REWRITE_SIZES = [["rewrites_small", "1 word", "#a3e635"], ["rewrites_medium", "2 to 3 words", "#fb923c"], ["rewrites_large", "4 or more", "#ef4444"]];
+function rewriteSizesHtml(groups) {
+  return groups.map(g => {
+    const v = g.list.filter(s => s.rewrite_words != null), all = sum(nums(v, "revisions"));
+    const per100 = signal("rewritesPer100").calc(g.list).value;
+    return '<div class="stack-row"><span class="stack-label">' + opLabel(g.p) + '</span><div class="stack">' + (all ? REWRITE_SIZES.map(([col, label, color]) => {
+      const c = sum(nums(v, col));
+      return c ? '<div style="width:' + (100 * c / all) + '%;background:' + color + '" title="' + esc(label) + ': ' + c + ' (' + fmtPct(c / all) + ')"></div>' : '';
+    }).join("") : '') + '</div><span class="mono small">' + (per100 == null ? "-" : per100.toFixed(1) + "/100w") + '</span></div>';
+  }).join("") + '<div class="legend-row">' + REWRITE_SIZES.map(([, label, color]) => '<span><span class="dot" style="background:' + color + '"></span>' + esc(label) + '</span>').join("") +
+    '<span>bar: share of rewrites by size; right: rewrites per 100 final words</span></div>';
+}
+
+/// Rows are the current groups, columns a second dimension, cells one signal: for example
+/// providers against noise levels for words rewritten.
+function crossTable(groups, colDim, sigKey) {
+  const sig = signal(sigKey), dim = DIMS[colDim], cols = dimKeys(colDim, groups.flatMap(g => g.list));
+  const colName = k => dim.name ? dim.name(k) : k;
+  const cells = groups.map(g => cols.map(c => {
+    const list = g.list.filter(s => dim.key(s) === c), ids = new Set(list.map(s => s.trace_id));
+    return sig.calc(list, g.streams.filter(st => ids.has(st.trace_id)));
+  }));
+  const best = cols.map((c, j) => {
+    const ranked = cells.map((row, i) => ({ i, ...row[j] })).filter(x => x.value != null && x.n >= OBS_MIN_N);
+    if (!sig.better || ranked.length < 2) return -1;
+    ranked.sort((a, b) => sig.better === "low" ? a.value - b.value : b.value - a.value);
+    return ranked[0].i;
+  });
+  return '<div class="table-scroll"><table class="grid"><thead><tr><th class="left">' + esc(DIMS[obs.dim].label) + '</th>' + cols.map(c => '<th>' + esc(colName(c)) + '</th>').join("") + '<th>All</th></tr></thead><tbody>' +
+    groups.map((g, i) => '<tr><td class="left">' + opLabel(g.p) + '</td>' + cells[i].map((v, j) => v.value == null ? '<td class="muted">-</td>' :
+      '<td class="' + (best[j] === i ? "best" : "") + (sig.better && v.n < OBS_MIN_N ? " thin" : "") + '">' + sig.fmt(v.value) + '<span class="n">n=' + v.n + '</span></td>').join("") +
+      (() => { const v = sig.calc(g.list, g.streams); return '<td>' + sig.fmt(v.value) + '<span class="n">n=' + v.n + '</span></td>'; })() + '</tr>').join("") + '</tbody></table></div>';
+}
+
+function pageAccuracy(groups) {
+  const m = obs.matrix, opt = (v, cur, label) => '<option value="' + esc(v) + '"' + (v === cur ? " selected" : "") + '>' + esc(label) + '</option>';
+  const controls = '<div class="row"><span class="muted mono">SIGNAL</span><select data-matrix="signal">' +
+    SIGNALS.filter(x => x.calc).map(x => opt(x.key, m.signal, GROUPS[x.group] + ": " + x.label)).join("") + '</select><span class="muted mono">ACROSS</span><select data-matrix="col">' +
+    Object.entries(DIMS).filter(([k]) => k !== obs.dim).map(([k, d]) => opt(k, m.col, d.label)).join("") + '</select></div>';
+  return panel('REWRITES AND <span class="accent">ACCURACY</span>', scoreTable(groups, ["rewritesPer100", "churn", "bigRewrites", "maxRewrite", "revisions", "finalChange", "empty", "first"]),
+      { sub: "HOW MUCH THE TEXT CHANGES AFTER IT IS SHOWN" }) +
+    panel('REWRITE <span class="accent">SIZE</span>', rewriteSizesHtml(groups), { sub: "SMALL FIXES OR BIG CHANGES" }) +
+    '<div class="panel"><div class="panel-head"><h2>BREAKDOWN <span class="accent">' + esc(DIMS[obs.dim].label.toUpperCase()) + ' x ' + esc((DIMS[m.col] || {}).label?.toUpperCase() || "") + '</span></h2>' + controls + '</div>' +
+      crossTable(groups, m.col, m.signal) + '<div class="muted small">Best ranked value per column in yellow; cells with fewer than ' + OBS_MIN_N + ' dictations are dimmed and not ranked.</div></div>' +
     '<div class="charts-2">' +
-    panel("FIRST WORDS P50", chart("sp-first", providerSeries(groups, l => quantile(nums(completed(l), "first_text_s"), 0.5)), fmtS)) +
-    panel("LIVE TEXT REWRITES", chart("sp-rev", providerSeries(groups, l => signal("revisions").calc(l).value), fmtPct)) +
-    panel("FINAL VS LIVE TEXT", chart("sp-change", providerSeries(groups, l => signal("finalChange").calc(l).value), fmtPct)) +
-    panel("WORDS PER MINUTE", chart("sp-wpm", providerSeries(groups, l => signal("wpm").calc(l).value), fmtInt)) +
-    '</div>' + '<div class="charts-2">' + breakdown(groups, "language", "LANGUAGE MIX") + breakdown(groups, "mic_type", "MICROPHONE") + '</div>' +
-    '<div class="panel note"><strong>What these mean.</strong> Live text rewrites count updates that changed earlier words instead of adding new ones (steadier is easier to read). ' +
-    'Final vs live text is the share of words that differ between the pill at release and the inserted text. Empty results flag a silent microphone or a provider fault. ' +
-    'Input level and clipping explain bad text that no provider metric can.</div>';
+    panel("REWRITES PER 100 WORDS", chart("ac-rate", providerSeries(groups, l => signal("rewritesPer100").calc(l).value), v => v.toFixed(1))) +
+    panel("WORDS REWRITTEN PER 100", chart("ac-churn", providerSeries(groups, l => signal("churn").calc(l).value), v => v.toFixed(1))) +
+    panel("LARGE REWRITES", chart("ac-large", providerSeries(groups, l => signal("bigRewrites").calc(l).value), fmtPct)) +
+    panel("FINAL VS LIVE TEXT", chart("ac-change", providerSeries(groups, l => signal("finalChange").calc(l).value), fmtPct)) +
+    '</div>' +
+    panel('INPUT AND <span class="accent">NOISE</span>', scoreTable(groups, ["snr", "noiseFloor", "peak", "rms", "clipping", "wpm"]), { sub: "THE SAME VOICE THROUGH DIFFERENT MICROPHONES AND ROOMS" }) +
+    '<div class="charts-2">' + breakdown(groups, "noise", "NOISE LEVEL") + breakdown(groups, "mic_type", "MICROPHONE") + '</div>' +
+    '<div class="panel note"><strong>How to read this.</strong> A rewrite is any time the shown text changed words it had already shown, whether the provider revised its live text or its final ' +
+    'result differed; case and punctuation are ignored. Words rewritten per 100 shows how far first results were from what the provider settled on, and the size bar shows whether those were ' +
+    'one-word fixes or big changes. Without a reference transcript this is a proxy for accuracy, not a word error rate. Noise levels come from the gap between your speech and the quietest ' +
+    'tenth of the audio: low is 30 dB or more, some is 20 to 30 dB, high is under 20 dB, and weak input means the speech itself was quieter than -50 dBFS. Compare by Model, Microphone, or Noise ' +
+    'at the top to regroup every page.</div>';
 }
 
 // --- Traces ---
 function sessionTable(rows) {
   if (!rows.length) return '<div class="muted mono">NO DICTATIONS MATCH</div>';
-  return '<div class="table-scroll"><table class="grid"><thead><tr><th class="left">Time</th><th class="left">Provider</th><th class="left">Outcome</th><th>Audio</th><th>Connect</th><th>First words</th><th>Release to text</th><th>Total</th><th>Attempts</th><th>Words</th></tr></thead><tbody>' +
+  return '<div class="table-scroll"><table class="grid"><thead><tr><th class="left">Time</th><th class="left">Provider</th><th class="left">Outcome</th><th>Audio</th><th>Connect</th><th>First words</th><th>Release to text</th><th>Total</th><th>Attempts</th><th>Rewrites</th><th class="left">Input</th><th>Words</th></tr></thead><tbody>' +
     rows.map(s => '<tr class="click' + (s.trace_id === obs.trace ? ' sel' : '') + '" data-trace="' + esc(s.trace_id) + '"><td class="left">' + esc(fmtWhen(s.t)) + '</td>' +
       '<td class="left">' + opLabel(s.provider) + (s.model ? '<span class="n">' + esc(s.model) + '</span>' : '') + '</td>' +
       '<td class="left ' + (s.outcome === "failed" ? "bad" : s.outcome === "completed" ? "good" : "muted") + '">' + esc(s.outcome) + (s.error_type ? '<span class="n">' + esc(s.error_type) + '</span>' : '') + '</td>' +
       '<td>' + fmtS(s.audio_s) + '</td><td>' + fmtS(s.connect_s) + '</td><td>' + fmtS(s.first_text_s) + '</td><td>' + fmtS(s.release_s) + '</td><td>' + fmtS(s.duration_s) + '</td>' +
-      '<td class="' + (s.attempts > 1 ? "warn" : "") + '">' + s.attempts + '</td><td>' + fmtInt(s.words) + '</td></tr>').join("") + '</tbody></table></div>';
+      '<td class="' + (s.attempts > 1 ? "warn" : "") + '">' + s.attempts + '</td>' +
+      '<td>' + (s.rewrite_words == null ? '-' : fmtInt(s.revisions) + '<span class="n">' + fmtInt(s.rewrite_words) + ' words, max ' + fmtInt(s.rewrite_max_words) + '</span>') + '</td>' +
+      '<td class="left">' + esc(s.mic_type || "-") + '<span class="n">' + esc(NOISE[s.noise] || s.noise || "") + (s.snr_db != null ? " " + Number(s.snr_db).toFixed(0) + " dB" : "") + '</span></td>' +
+      '<td>' + fmtInt(s.words) + '</td></tr>').join("") + '</tbody></table></div>';
 }
 
 function pageTraces(groups, list) {
   const f = obs.traceFilter, text = f.text.trim().toLowerCase();
   const rows = list.filter(s => (f.outcome === "all" || (f.outcome === "retried" ? s.attempts > 1 : s.outcome === f.outcome)) &&
-    (s.duration_s || 0) >= f.minSeconds && (!text || [s.trace_id, s.error_type, s.model, s.target_app].some(v => v && String(v).toLowerCase().includes(text)))).slice(0, 200);
+    (s.duration_s || 0) >= f.minSeconds && (!text || [s.trace_id, s.error_type, s.model, s.target_app, s.mic_type, NOISE[s.noise] || s.noise].some(v => v && String(v).toLowerCase().includes(text)))).slice(0, 200);
   const filters = '<div class="toolbar"><div class="row">' +
     '<div class="seg" data-obs-outcome>' + ["all", "completed", "failed", "retried", "cancelled"].map(o => '<button type="button" data-outcome="' + o + '"' + (o === f.outcome ? ' class="active"' : '') + '>' + o + '</button>').join("") + '</div>' +
     '<input type="number" id="tr-min" min="0" step="0.5" placeholder="Min seconds" value="' + (f.minSeconds || "") + '" title="Minimum total duration in seconds">' +
@@ -606,6 +686,16 @@ function obsWire() {
     document.querySelectorAll("#obs-range button").forEach(x => x.classList.toggle("active", x === b));
     obsPoll(true);
   };
+  const dims = document.getElementById("obs-dim");
+  dims.innerHTML = Object.entries(DIMS).map(([k, d]) => '<button type="button" data-dim="' + k + '"' + (k === obs.dim ? ' class="active"' : '') + '>' + esc(d.label) + '</button>').join("");
+  dims.onclick = e => {
+    const b = e.target.closest("button[data-dim]");
+    if (!b) return;
+    obs.dim = b.dataset.dim;
+    if (obs.matrix.col === obs.dim) obs.matrix.col = obs.dim === "provider" ? "noise" : "provider";
+    dims.querySelectorAll("button").forEach(x => x.classList.toggle("active", x === b));
+    renderObsPage();
+  };
   const chips = document.getElementById("obs-providers");
   chips.innerHTML = Object.entries(OBS_PROVIDERS).map(([k, v]) => '<button type="button" class="active" data-provider="' + k + '">' + opDot(k) + esc(v.name) + '</button>').join("");
   chips.onclick = e => {
@@ -647,6 +737,7 @@ function obsWire() {
     if (t.id === "m-name") { obs.metric.name = t.value; obsMetricLoad().then(renderObsPage).catch(obsShowError); }
     if (t.id === "m-agg") { obs.metric.agg = t.value; obsMetricRender(); }
     if (t.id === "m-by") { obs.metric.by = t.value; obsMetricRender(); }
+    if (t.dataset.matrix) { obs.matrix[t.dataset.matrix] = t.value; renderObsPage(); }
     if (t.id === "tr-min") { obs.traceFilter.minSeconds = Number(t.value) || 0; renderObsPage(); }
   });
   view.addEventListener("input", e => {

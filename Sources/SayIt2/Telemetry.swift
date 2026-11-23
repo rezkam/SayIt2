@@ -114,7 +114,8 @@ final class Telemetry: @unchecked Sendable {
 
     private static let metricRules: [String: (keys: [String], rules: [Rule])] = [
         "sayit2.dictation": (
-            keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language", "error.type"],
+            keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language",
+                   "sayit2.mic.type", "sayit2.audio.noise", "error.type"],
             rules: [
                 .duration("sayit2.dictation.duration"),
                 .count("sayit2.dictation.count", unit: "{dictation}"),
@@ -124,6 +125,9 @@ final class Telemetry: @unchecked Sendable {
                 .attribute("sayit2.audio.backlog.max_seconds", "sayit2.audio.backlog.max", unit: "s"),
                 .attribute("sayit2.text.final_change", "sayit2.text.final_change", unit: "1"),
                 .attribute("sayit2.partials.revisions", "sayit2.partials.revisions", unit: "{revision}"),
+                .attribute("sayit2.rewrites.words", "sayit2.rewrites.words", unit: "{word}"),
+                .attribute("sayit2.rewrites.max_words", "sayit2.rewrites.max_words", unit: "{word}"),
+                .attribute("sayit2.audio.snr_db", "sayit2.audio.snr", unit: "dB"),
                 .attribute("sayit2.text.characters", "sayit2.text.characters", unit: "{character}"),
                 .attribute("sayit2.text.words", "sayit2.text.words", unit: "{word}"),
             ]

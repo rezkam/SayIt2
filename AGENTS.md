@@ -18,7 +18,7 @@ dictation in the ChatGPT desktop app.
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,500 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,600 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -140,18 +140,26 @@ dictation in the ChatGPT desktop app.
 - The Observability tab (`Resources/observability.js`, charts by the vendored uPlot 1.6.32, MIT)
   reads the database through `POST query`, which runs one read-only statement (an authorizer
   refuses writes, ATTACH, and PRAGMA; queries stop after 5 s). Pages: Overview (takeaways naming
-  the best provider per category, golden signal cards, scorecard), Latency, Traffic, Errors,
-  Saturation, Speech, Traces (search, waterfall, milestones, attributes, logs), Metrics
+  the best group per category, golden signal cards, scorecard), Latency, Traffic, Errors,
+  Saturation, Accuracy (rewrites, rewrite size, input and noise, and a breakdown of any signal
+  across a second dimension), Traces (search, waterfall, milestones, attributes, logs), Metrics
   (aggregate a metric by a label, with exemplar traces), and SQL. Every page filters by
-  provider and time range. Providers need 5 samples to be ranked; differences under 5% tie.
+  provider and time range and compares by provider, model, microphone type, noise level, or
+  language. Groups need 5 samples to be ranked; differences under 5% tie.
 - Instrumentation covers each dictation end to end under one trace: `sayit2.dictation` (root,
   including start failures and microphone milestones), `sayit2.stream` (per provider attempt,
   with HTTP status, WebSocket close code, handshake time, time to first text from the first
   audio sent, and replayed audio), `sayit2.auth.renew` (ChatGPT OAuth refresh), and
   `sayit2.insert` (text insertion and focus wait). The root also records the streaming signals
   research on streaming recognition recommends watching client side: release to final text,
-  the largest send backlog, live text rewrites, how much the final text differs from the live
-  text at release, and input peak, loudness, clipping, and dropouts. Logs carry trace context
+  the largest send backlog, how much the final text differs from the live text at release,
+  and input peak, loudness, clipping, and dropouts. Rewrites are counted the same way for every
+  provider: each time the shown text changes words it already showed (case and punctuation
+  ignored), with the words changed, the largest rewrite, and sizes of 1, 2 to 3, and 4 or more
+  words. Noise is estimated from per-buffer loudness: background is the quietest 10% of the
+  audio, speech the loudest 10%; the gap gives low (30 dB or more), moderate (20 to 30), or
+  high noise, or weak input when speech is below -50 dBFS. These bands are rough, not
+  calibrated. Microphones are recorded by type only, never by name. Logs carry trace context
   and severity levels; metric samples and usage are derived from ended spans in one table.
 - Telemetry must never block, delay, or fail a dictation.
 

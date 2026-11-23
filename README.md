@@ -81,9 +81,12 @@ Nothing is ever sent anywhere.
   app bundle ID. Open **Dashboard…** in the menu bar to view a live yearly heatmap, peak hours,
   per-day stats, and settings in your default browser (served on `127.0.0.1` only).
 - The dashboard's **Observability** tab compares ChatGPT, Deepgram, and ElevenLabs on the four
-  golden signals (latency, traffic, errors, saturation) plus speech signals, filtered by
-  provider and time range. Overview names the best provider per category and shows a full
-  scorecard. Latency shows p50 to p99 per stage over time and every dictation's latency. Errors
+  golden signals (latency, traffic, errors, saturation) plus accuracy and input signals,
+  filtered by provider and time range. **Compare by** regroups every page by provider, model,
+  microphone type, noise level, or language. Overview names the best group per category and
+  shows a full scorecard. Accuracy shows how often and how much each provider rewrites text it
+  already showed (1-word fixes or bigger changes), and a breakdown such as providers against
+  noise levels. Latency shows p50 to p99 per stage over time and every dictation's latency. Errors
   breaks failures down by type, HTTP and WebSocket code, and outcome. Traces lets you open any
   dictation and follow it end to end. Metrics aggregates any metric by any label, and SQL runs
   your own read-only queries.

@@ -53,8 +53,11 @@ final class Dictation {
     private var stoppedAt: Date?
     private var shownAtStop = ""
     private var maxBacklog = 0      // most unsent audio bytes at once
-    private var partials = 0
-    private var revisions = 0       // live text that rewrote earlier words instead of extending them
+    private var partials = 0        // changes of the shown text
+    private var revisions = 0       // changes that rewrote words already shown instead of adding words
+    private var rewrittenWords = 0
+    private var largestRewrite = 0
+    private var rewriteSizes = [0, 0, 0]   // rewrites of 1, 2 to 3, and 4 or more words
 
     init(config: Config, handsFree: Bool, typist: Typist) throws {
         self.config = config
@@ -176,10 +179,6 @@ final class Dictation {
 
         stream.onInterim = { [weak self, weak stream] text in
             guard let self, self.stream === stream else { return }
-            if !text.isEmpty {
-                self.partials += 1
-                if !self.live.isEmpty, !text.hasPrefix(self.live) { self.revisions += 1 }
-            }
             self.live = text
             self.render()
         }
@@ -255,6 +254,7 @@ final class Dictation {
             guard text.count >= shown.count else { return }
             catchingUp = false
         }
+        noteRewrite(from: shown, to: text)
         shown = text
         paintPreview()
     }
@@ -342,6 +342,11 @@ final class Dictation {
         span.setAttribute(key: "sayit2.audio.backlog.max_seconds", value: seconds(maxBacklog))
         span.setAttribute(key: "sayit2.partials.count", value: partials)
         span.setAttribute(key: "sayit2.partials.revisions", value: revisions)
+        span.setAttribute(key: "sayit2.rewrites.words", value: rewrittenWords)
+        span.setAttribute(key: "sayit2.rewrites.max_words", value: largestRewrite)
+        span.setAttribute(key: "sayit2.rewrites.small", value: rewriteSizes[0])
+        span.setAttribute(key: "sayit2.rewrites.medium", value: rewriteSizes[1])
+        span.setAttribute(key: "sayit2.rewrites.large", value: rewriteSizes[2])
         if let stoppedAt { span.setAttribute(key: "sayit2.release.seconds", value: Date().timeIntervalSince(stoppedAt)) }
         span.setAttribute(key: "sayit2.text.characters", value: text.count)
         span.setAttribute(key: "sayit2.text.words", value: text.split(whereSeparator: \.isWhitespace).count)
@@ -362,14 +367,38 @@ final class Dictation {
 
     private func seconds(_ bytes: Int) -> Double { Double(bytes) / 2 / provider.sampleRate }
 
+    /// Counts a rewrite when the shown text changes words it already showed instead of only adding
+    /// words, and how many it changed. The same for every provider: live text revised by the
+    /// provider and live text replaced by a different final both count.
+    private func noteRewrite(from old: String, to new: String) {
+        guard old != new, !new.isEmpty else { return }
+        partials += 1
+        let a = Self.words(old), b = Self.words(new)
+        var same = 0
+        while same < a.count, same < b.count, a[same] == b[same] { same += 1 }
+        guard same < a.count else { return }   // only words added
+        // Words past the old length are new words, not changes, so they are not counted.
+        let oldTail = Array(a[same...].prefix(300)), newTail = Array(b[same...].prefix(300))
+        let changed = max(1, Self.distance(oldTail, newTail) - max(0, newTail.count - oldTail.count))
+        revisions += 1
+        rewrittenWords += changed
+        largestRewrite = max(largestRewrite, changed)
+        rewriteSizes[changed == 1 ? 0 : changed <= 3 ? 1 : 2] += 1
+    }
+
     /// Word edit distance from the live text shown at release to the final text, relative to the
-    /// final's length (case and punctuation ignored): how far the pill was from the real result.
+    /// final's length: how far the pill was from the real result.
     private static func change(from shown: String, to final: String) -> Double {
-        let words = { (text: String) in
-            text.split(whereSeparator: \.isWhitespace).map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }.filter { !$0.isEmpty }
-        }
         let a = words(shown), b = words(final)
-        guard !b.isEmpty else { return 0 }
+        return b.isEmpty ? 0 : Double(distance(a, b)) / Double(b.count)
+    }
+
+    /// Words with case and punctuation ignored, so only real word changes count.
+    private static func words(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isWhitespace).map { $0.lowercased().filter { $0.isLetter || $0.isNumber } }.filter { !$0.isEmpty }
+    }
+
+    private static func distance(_ a: [String], _ b: [String]) -> Int {
         var previous = Array(0...a.count)
         for (j, word) in b.enumerated() {
             var current = [j + 1]
@@ -378,7 +407,7 @@ final class Dictation {
             }
             previous = current
         }
-        return Double(previous[a.count]) / Double(b.count)
+        return previous[a.count]
     }
 
     private func close() {

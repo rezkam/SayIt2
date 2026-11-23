@@ -38,6 +38,9 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var samples = 0
     private var energy: Double = 0
     private var dropouts = 0
+    /// How many buffers had each loudness, in 1 dB steps from 0 down to -120 dBFS, to estimate
+    /// background noise (the quietest buffers) and speech level (the loudest) afterwards.
+    private var loudness = [Int](repeating: 0, count: 121)
     /// When the previous buffer should have ended, on `queue`, to notice audio the device dropped.
     private var expectedNext: CMTime?
 
@@ -92,6 +95,23 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         span?.setAttribute(key: "sayit2.audio.rms_dbfs", value: 10 * log10(max(energy / Double(samples), 1e-10)))
         span?.setAttribute(key: "sayit2.audio.clipped_ratio", value: Double(clipped) / Double(samples))
         span?.setAttribute(key: "sayit2.audio.dropouts", value: dropouts)
+        let floor = loudness(at: 0.1), speech = loudness(at: 0.9), snr = speech - floor
+        span?.setAttribute(key: "sayit2.audio.noise_floor_dbfs", value: floor)
+        span?.setAttribute(key: "sayit2.audio.speech_dbfs", value: speech)
+        span?.setAttribute(key: "sayit2.audio.snr_db", value: snr)
+        // Rough bands for comparing recognition across rooms; not a calibrated measurement.
+        span?.setAttribute(key: "sayit2.audio.noise", value: speech < -50 ? "weak_input" : snr >= 30 ? "low" : snr >= 20 ? "moderate" : "high")
+    }
+
+    /// The loudness below which `fraction` of the buffers fall, in dBFS.
+    private func loudness(at fraction: Double) -> Double {
+        let total = loudness.reduce(0, +)
+        var seen = 0
+        for bin in stride(from: loudness.count - 1, through: 0, by: -1) {
+            seen += loudness[bin]
+            if Double(seen) >= fraction * Double(total) { return -Double(bin) }
+        }
+        return 0
     }
 
     /// Called regularly while recording. Lost means no audio for a while (3 s to get going at
@@ -204,6 +224,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             self.samples += count
             self.energy += Double(energy)
             if dropped { self.dropouts += 1 }
+            self.loudness[min(max(Int(-decibels.rounded()), 0), 120)] += 1
             self.onAudio?(pcm, level)
         }
     }

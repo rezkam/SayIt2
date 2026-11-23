@@ -297,7 +297,7 @@
   svg.strip { width: 100%; height: auto; display: block; font-family: var(--mono); }
   svg.strip text { fill: var(--muted); font-size: 10px; }
   svg.strip text.lbl { fill: var(--text); font-size: 11px; }
-  .stack-row { display: grid; grid-template-columns: 140px 1fr 60px; gap: 10px; align-items: center; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; }
+  .stack-row { display: grid; grid-template-columns: 220px 1fr 80px; gap: 10px; align-items: center; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; }
   .stack-label { display: flex; align-items: center; }
   .stack { display: flex; height: 16px; border-radius: 3px; overflow: hidden; background: #1a1a1a; }
   .legend-row .dot { width: 7px; height: 7px; margin-right: 5px; }
@@ -540,12 +540,14 @@
         <button type="button" data-page="traffic">Traffic</button>
         <button type="button" data-page="errors">Errors</button>
         <button type="button" data-page="saturation">Saturation</button>
-        <button type="button" data-page="speech">Speech</button>
+        <button type="button" data-page="accuracy">Accuracy</button>
         <button type="button" data-page="traces">Traces</button>
         <button type="button" data-page="metrics">Metrics</button>
         <button type="button" data-page="query">SQL</button>
       </div>
       <div class="row">
+        <span class="muted mono">COMPARE BY</span>
+        <div class="seg" id="obs-dim"></div>
         <div class="seg" id="obs-providers" title="Click to show or hide a provider; Option-click to show it alone"></div>
         <div class="seg" id="obs-range">
           <button type="button" data-range="1">24H</button>
