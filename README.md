@@ -72,8 +72,10 @@ The rules themselves are not sent to any provider.
 SayIt2 writes local telemetry and daily usage counters under `~/.local/share/sayit2/`.
 Nothing leaves your Mac unless you configure an OTLP endpoint.
 
-- `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` holds OpenTelemetry traces, metrics,
-  and logs in OTLP/JSON Lines format (each file rotates at 10 MB, keeping 5 archives).
+- `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` holds OpenTelemetry traces
+  (`sayit2.dictation`, `sayit2.stream`, `sayit2.auth.renew`, `sayit2.insert`), derived metrics,
+  and trace-linked logs with severity levels in OTLP/JSON Lines format (each file rotates at
+  10 MB, keeping 5 archives). OTLP export failures are logged to macOS unified logging only.
 - `~/.local/share/sayit2/usage_stats.json` keeps daily totals of recordings, audio seconds,
   words, and characters, broken down by model, language, hour of day, trigger mode, and target
   app bundle ID. Open **Dashboard…** in the menu bar to view a live yearly heatmap, peak hours,

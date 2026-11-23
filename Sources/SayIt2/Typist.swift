@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import OpenTelemetryApi
 
 /// Marks key events SayIt2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
@@ -21,11 +22,18 @@ final class Typist {
         /// The text to insert; nil until the dictation has finished.
         fileprivate var text: [Unicode.Scalar]?
         fileprivate var sent = 0
+        fileprivate var parentSpan: Span?
+        fileprivate var insertSpan: Span?
+        fileprivate var waitStart: Date?
+        fileprivate var waitedSeconds: Double = 0
+        fileprivate var waited = false
+        fileprivate var relaunched = false
 
-        fileprivate init(app: pid_t, field: AXUIElement?) {
+        fileprivate init(app: pid_t, field: AXUIElement?, parentSpan: Span?) {
             self.app = app
             self.bundle = NSRunningApplication(processIdentifier: app)?.bundleIdentifier
             self.field = field
+            self.parentSpan = parentSpan
         }
     }
 
@@ -46,9 +54,9 @@ final class Typist {
     }
 
     /// Starts a job for the field that has keyboard focus right now.
-    func begin() -> Job? {
+    func begin(parentSpan: Span? = nil) -> Job? {
         guard let app = Self.focusedApp() else { return nil }
-        let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()))
+        let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()), parentSpan: parentSpan)
         jobs.append(job)
         run()
         return job
@@ -57,6 +65,12 @@ final class Typist {
     /// Hands over the job's final text. Empty text ends the job without inserting anything.
     func insert(_ text: String, for job: Job) {
         guard job.text == nil else { return }
+        if !text.isEmpty {
+            let span = Telemetry.startSpan("sayit2.insert", parent: job.parentSpan)
+            span.setAttribute(key: "sayit2.text.characters", value: text.count)
+            if let bundle = job.bundle { span.setAttribute(key: "sayit2.target_app.bundle_id", value: bundle) }
+            job.insertSpan = span
+        }
         job.text = text.precomposedStringWithCanonicalMapping.unicodeScalars.map {
             $0.properties.generalCategory == .control ? " " : $0
         }
@@ -83,6 +97,7 @@ final class Typist {
         case .invalidUIElement:
             // The original field no longer exists; fall back to the app, like after a relaunch.
             job.field = nil
+            job.insertSpan?.addEvent(name: "field_fallback")
             return true
         case .cannotComplete:
             // The app did not answer in time; wait and try again.
@@ -113,12 +128,33 @@ final class Typist {
             while !jobs.isEmpty {
                 guard let job = nextJob() else {
                     let waiting = jobs.contains { $0.text != nil }
+                    if waiting {
+                        for pending in jobs where pending.text != nil && pending.waitStart == nil {
+                            pending.waitStart = Date()
+                            pending.waited = true
+                            pending.insertSpan?.addEvent(name: "focus_wait_started")
+                            Telemetry.event("waiting for target field focus", severity: .warn, span: pending.insertSpan)
+                        }
+                    }
                     setWaiting(waiting)
                     try? await Task.sleep(for: .milliseconds(waiting ? 150 : 15))
                     continue
                 }
+                if let start = job.waitStart {
+                    job.waitedSeconds += Date().timeIntervalSince(start)
+                    job.waitStart = nil
+                    job.insertSpan?.addEvent(name: "focus_restored")
+                }
                 setWaiting(false)
                 guard let text = job.text, job.sent < text.count else {
+                    if let span = job.insertSpan {
+                        span.setAttribute(key: "sayit2.insert.waited", value: job.waited)
+                        if job.waited { span.setAttribute(key: "sayit2.insert.wait.seconds", value: job.waitedSeconds) }
+                        if job.relaunched { span.setAttribute(key: "sayit2.insert.relaunched", value: true) }
+                        span.status = .ok
+                        span.end()
+                        Telemetry.flush()
+                    }
                     jobs.removeAll { $0 === job }
                     continue
                 }
@@ -159,6 +195,9 @@ final class Typist {
               relaunched.isFinishedLaunching else { return }
         job.app = relaunched.processIdentifier
         job.field = nil
+        job.relaunched = true
+        job.insertSpan?.addEvent(name: "app_relaunched")
+        Telemetry.event("target app relaunched", span: job.insertSpan)
     }
 
     private func setWaiting(_ waiting: Bool) {

@@ -18,7 +18,7 @@ dictation in the ChatGPT desktop app.
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,900 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,350 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -139,9 +139,12 @@ dictation in the ChatGPT desktop app.
   `telemetry.otlp.authorization`) is set in `~/.config/sayit2/config`, in which case traces,
   cumulative metrics, and logs are also POSTed as OTLP/HTTP JSON (local `metrics.jsonl` stays
   delta).
-- Instrumentation lives in the `Dictation` and `Transcriber` base class spans plus the one
-  `Telemetry.event` helper, and metrics and usage are derived from ended spans, so new
-  measurements are added in one place.
+- Instrumentation covers each dictation end to end under one trace: `sayit2.dictation` (root,
+  including start failures and microphone milestones), `sayit2.stream` (per provider attempt,
+  with HTTP status, WebSocket close code, and time to first text), `sayit2.auth.renew` (ChatGPT
+  OAuth refresh), and `sayit2.insert` (text insertion and focus wait). Logs carry trace context
+  and severity levels; metrics and usage are derived from ended spans in one table. OTLP export
+  failures log rate-limited warnings to macOS unified logging without re-entering OTel.
 - Telemetry must never block, delay, or fail a dictation.
 
 ## Out of scope

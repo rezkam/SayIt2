@@ -1,6 +1,7 @@
 import Foundation
 import OpenTelemetryApi
 import OpenTelemetrySdk
+import os
 
 /// Serial queue for all telemetry encoding, file appends, rotation, and usage updates.
 let telemetryQueue = DispatchQueue(label: "sayit2.telemetry", qos: .utility)
@@ -8,10 +9,12 @@ let telemetryQueue = DispatchQueue(label: "sayit2.telemetry", qos: .utility)
 /// Appends one OTLP/JSON line per export to `<dir>/<name>.jsonl` (rotating at 10 MB, keeping 5)
 /// and optionally POSTs the same OTLP/JSON payload to a configured OTLP/HTTP endpoint.
 final class OtelFileWriter: @unchecked Sendable {
+    private static let osLog = os.Logger(subsystem: "sayit2", category: "telemetry")
     private let directory: URL
     private let maxBytes: off_t = 10 * 1024 * 1024
     private var endpoint: String?
     private var authorization: String?
+    private var lastPostError: [String: Date] = [:]
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 10
@@ -75,7 +78,21 @@ final class OtelFileWriter: @unchecked Sendable {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let authorization { req.setValue(authorization, forHTTPHeaderField: "Authorization") }
         req.httpBody = data
-        session.dataTask(with: req).resume()
+        session.dataTask(with: req) { [weak self] _, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard error != nil || !(200...299).contains(status) else { return }
+            telemetryQueue.async {
+                guard let self else { return }
+                let now = Date()
+                if let last = self.lastPostError[signal], now.timeIntervalSince(last) < 60 { return }
+                self.lastPostError[signal] = now
+                if let error {
+                    Self.osLog.error("OTLP \(signal, privacy: .public) export failed: \(error.localizedDescription, privacy: .public)")
+                } else {
+                    Self.osLog.error("OTLP \(signal, privacy: .public) export rejected with HTTP \(status)")
+                }
+            }
+        }.resume()
     }
 
     func drain() { telemetryQueue.sync {} }

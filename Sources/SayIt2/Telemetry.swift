@@ -58,7 +58,11 @@ final class Telemetry: @unchecked Sendable {
     /// Writes to both the unified log (unless disabled) and the OTel log stream.
     static func event(_ message: String, name: String? = nil, severity: Severity = .info,
                       span: Span? = nil, attributes: [String: AttributeValue] = [:], unified: Bool = true) {
-        if unified { osLog.notice("\(message, privacy: .public)") }
+        if unified {
+            if severity.rawValue >= Severity.error.rawValue { osLog.error("\(message, privacy: .public)") }
+            else if severity.rawValue >= Severity.warn.rawValue { osLog.warning("\(message, privacy: .public)") }
+            else { osLog.notice("\(message, privacy: .public)") }
+        }
         var builder = shared.logger.logRecordBuilder().setTimestamp(Date()).setSeverity(severity).setBody(.string(message))
         if let name { builder = builder.setEventName(name) }
         if let span { builder = builder.setSpanContext(span.context) }
@@ -116,7 +120,7 @@ private final class SpanMetricsProcessor: SpanProcessor, @unchecked Sendable {
         }
         self.table = [
             "sayit2.dictation": (
-                keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language"],
+                keys: ["gen_ai.provider.name", "gen_ai.request.model", "sayit2.trigger_mode", "sayit2.end_reason", "sayit2.language", "error.type"],
                 rules: [
                     .duration(histogram("sayit2.dictation.duration")),
                     .count(meter.counterBuilder(name: "sayit2.dictation.count").build()),
@@ -127,10 +131,26 @@ private final class SpanMetricsProcessor: SpanProcessor, @unchecked Sendable {
                 ]
             ),
             "sayit2.stream": (
-                keys: ["server.address", "error.type"],
+                keys: ["gen_ai.provider.name", "gen_ai.request.model", "server.address", "error.type"],
                 rules: [
                     .duration(histogram("sayit2.stream.duration")),
                     .count(meter.counterBuilder(name: "sayit2.stream.count").build()),
+                    .attrDouble("sayit2.stream.first_text.seconds", histogram("sayit2.stream.first_text.duration")),
+                ]
+            ),
+            "sayit2.insert": (
+                keys: ["sayit2.insert.waited"],
+                rules: [
+                    .duration(histogram("sayit2.insert.duration")),
+                    .count(meter.counterBuilder(name: "sayit2.insert.count").build()),
+                    .attrDouble("sayit2.insert.wait.seconds", histogram("sayit2.insert.wait.duration")),
+                ]
+            ),
+            "sayit2.auth.renew": (
+                keys: ["error.type"],
+                rules: [
+                    .duration(histogram("sayit2.auth.renew.duration")),
+                    .count(meter.counterBuilder(name: "sayit2.auth.renew.count").build()),
                 ]
             ),
         ]

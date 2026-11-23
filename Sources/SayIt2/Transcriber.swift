@@ -40,8 +40,10 @@ class Transcriber {
     func send(audio: Data) {}
     /// No more audio: ask the server for the remaining text.
     func finish() {}
-    /// Explains a connection that failed or closed, given the HTTP status of the handshake.
-    func closed(status: Int) -> Problem { Problem(message: "Connection lost") }
+    /// Explains a connection that failed or closed, given the HTTP status and WebSocket close info.
+    func closed(status: Int, closeCode: Int, reason: String?) -> Problem {
+        Problem(message: "Connection lost", errorType: closeCode > 0 ? "ws_\(closeCode)" : "connection_lost")
+    }
 
     func start() {
         if let orig = onInterim {
@@ -74,7 +76,7 @@ class Transcriber {
                 }
             }
         } catch {
-            end(error as? Problem ?? Problem(message: "Connection failed"))
+            end(error as? Problem ?? Problem(message: "Connection failed", errorType: "request_failed"))
         }
     }
 
@@ -95,8 +97,8 @@ class Transcriber {
 
     func send(_ message: URLSessionWebSocketTask.Message) {
         task?.send(message) { [weak self] error in
-            guard error != nil else { return }
-            Task { @MainActor in self?.failed() }
+            guard let error else { return }
+            Task { @MainActor in self?.failed(error) }
         }
     }
 
@@ -105,11 +107,16 @@ class Transcriber {
         task?.receive { [weak self] result in
             Task { @MainActor in
                 guard let self, !self.ended else { return }
-                guard case .success(let message) = result else { return self.failed() }
+                guard case .success(let message) = result else {
+                    if case .failure(let error) = result { self.failed(error) } else { self.failed(nil) }
+                    return
+                }
                 self.lastActivity = Date()
                 self.lastMessage = Date()
                 if !self.sawMessage {
                     self.sawMessage = true
+                    self.recordHandshakeHeaders()
+                    self.span?.setAttribute(key: "sayit2.stream.first_message.seconds", value: Date().timeIntervalSince(self.startedAt))
                     self.span?.addEvent(name: "first_message")
                 }
                 if case .string(let text) = message {
@@ -128,7 +135,16 @@ class Transcriber {
     private func noteFirstText() {
         guard !sawText else { return }
         sawText = true
+        span?.setAttribute(key: "sayit2.stream.first_text.seconds", value: Date().timeIntervalSince(startedAt))
         span?.addEvent(name: "first_text")
+    }
+
+    private func recordHandshakeHeaders() {
+        guard let http = task?.response as? HTTPURLResponse else { return }
+        span?.setAttribute(key: "http.response.status_code", value: http.statusCode)
+        if let id = http.value(forHTTPHeaderField: "dg-request-id") ?? http.value(forHTTPHeaderField: "x-request-id"), !id.isEmpty {
+            span?.setAttribute(key: "sayit2.provider.request_id", value: id)
+        }
     }
 
     private func endSpan(problem: Problem?) {
@@ -143,7 +159,21 @@ class Transcriber {
         span?.end()
     }
 
-    private func failed() {
-        end(closed(status: (task?.response as? HTTPURLResponse)?.statusCode ?? 0))
+    private func failed(_ error: Error?) {
+        guard !ended else { return }
+        recordHandshakeHeaders()
+        let http = task?.response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        let closeCode = task?.closeCode.rawValue ?? 0
+        let reason = task?.closeReason.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if closeCode > 0 { span?.setAttribute(key: "websocket.close.code", value: closeCode) }
+        if let reason, !reason.isEmpty { span?.setAttribute(key: "websocket.close.reason", value: String(reason.prefix(120))) }
+        let dgError = http?.value(forHTTPHeaderField: "dg-error")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var detail = "stream failed: http \(status), ws \(closeCode)"
+        if let reason, !reason.isEmpty { detail += " (\(String(reason.prefix(120))))" }
+        if let dgError, !dgError.isEmpty { detail += " [\(String(dgError.prefix(160)))]" }
+        if let urlError = error as? URLError { detail += " [URLError \(urlError.code.rawValue)]" }
+        Telemetry.event(detail, severity: .error, span: span)
+        end(closed(status: status, closeCode: closeCode, reason: reason))
     }
 }

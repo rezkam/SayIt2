@@ -19,7 +19,7 @@ final class DeepgramStream: Transcriber {
         var url = URLComponents(string: config.url(for: .deepgram))
         url?.queryItems = config.parameters(for: .deepgram)
         guard let address = url?.url else {
-            throw Problem(message: "Deepgram url in the config is not valid", retryable: false)
+            throw Problem(message: "Deepgram url in the config is not valid", retryable: false, errorType: "invalid_config")
         }
         var request = URLRequest(url: address)
         request.setValue("Token \(config.key(for: .deepgram) ?? "")", forHTTPHeaderField: "Authorization")
@@ -27,11 +27,14 @@ final class DeepgramStream: Transcriber {
     }
 
     override func send(audio: Data) {
+        // Deepgram closes the socket if sent an empty binary frame.
+        guard !audio.isEmpty else { return }
         send(.data(audio))
     }
 
     override func finish() {
         finishing = true
+        span?.addEvent(name: "finish_requested")
         send(.string(#"{"type":"CloseStream"}"#))
     }
 
@@ -65,22 +68,60 @@ final class DeepgramStream: Transcriber {
             }
             onInterim?(draft)
         case "Metadata":
+            if let id = message["request_id"] as? String, !id.isEmpty {
+                span?.setAttribute(key: "sayit2.provider.request_id", value: id)
+            }
             // CloseStream flushes final results before Metadata. An unconfirmed draft is
             // still useful as an error fallback, but is not a successful final.
             if finishing {
-                end(draft.isEmpty ? nil : Problem(message: "Deepgram did not confirm the final text", retryable: false))
+                end(draft.isEmpty ? nil : Problem(message: "Deepgram did not confirm the final text", retryable: false, errorType: "unconfirmed_final"))
             }
+        case "Error":
+            fail(message)
         default:
-            break
+            if message["err_code"] != nil || message["error"] != nil { fail(message) }
         }
     }
 
-    override func closed(status: Int) -> Problem {
-        switch status {
-        case 401: Problem(message: "Deepgram key rejected", retryable: false)
-        case 403: Problem(message: "Deepgram: no access to this model", retryable: false)   // often a misspelled model name
-        case 400: Problem(message: "Deepgram rejected the config", retryable: false)
-        default: Problem(message: "Can't reach Deepgram")
+    private func fail(_ message: [String: Any]) {
+        let code = (message["err_code"] as? String ?? message["category"] as? String ?? "provider_error").trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = (message["err_msg"] as? String ?? message["description"] as? String ?? message["message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        Telemetry.event("Deepgram error (\(code))\(detail.isEmpty ? "" : ": \(String(detail.prefix(160)))")", severity: .error, span: span)
+        let upper = code.uppercased()
+        if upper.contains("AUTH") || upper.contains("PERMISSION") {
+            return end(Problem(message: "Deepgram key rejected", retryable: false, errorType: code))
         }
+        if upper.contains("PAYMENT") || upper.contains("QUOTA") || upper.contains("INSUFFICIENT_FUNDS") {
+            return end(Problem(message: "Deepgram quota or balance exceeded", retryable: false, errorType: code))
+        }
+        if upper.contains("BAD_REQUEST") || upper.contains("INVALID") || upper.hasPrefix("DATA-") {
+            return end(Problem(message: "Deepgram rejected the config or audio", retryable: false, errorType: code))
+        }
+        end(Problem(message: "Deepgram connection interrupted", errorType: code))
+    }
+
+    override func closed(status: Int, closeCode: Int, reason: String?) -> Problem {
+        switch status {
+        case 401: return Problem(message: "Deepgram key rejected", retryable: false, errorType: "auth_error")
+        case 402: return Problem(message: "Deepgram quota or balance exceeded", retryable: false, errorType: "quota_exceeded")
+        case 403: return Problem(message: "Deepgram: no access to this model", retryable: false, errorType: "forbidden")
+        case 400, 422: return Problem(message: "Deepgram rejected the config", retryable: false, errorType: "invalid_request")
+        case 429: return Problem(message: "Deepgram rate limited", errorType: "rate_limited")
+        case 500...599: return Problem(message: "Deepgram server error", errorType: "server_error")
+        default: break
+        }
+        let why = reason ?? ""
+        if closeCode == 1008 || why.contains("DATA-") {
+            return Problem(message: "Deepgram rejected the audio format", retryable: false, errorType: "ws_1008_data")
+        }
+        if closeCode == 1009 {
+            return Problem(message: "Deepgram audio frame too large", retryable: false, errorType: "ws_1009")
+        }
+        if closeCode == 1011 {
+            let noAudio = why.contains("NET-0002") || why.contains("no_audio_timeout")
+            return Problem(message: noAudio ? "Deepgram timed out waiting for audio" : "Deepgram connection interrupted",
+                           errorType: noAudio ? "ws_1011_no_audio" : "ws_1011")
+        }
+        return Problem(message: "Can't reach Deepgram", errorType: closeCode > 0 ? "ws_\(closeCode)" : "connection_lost")
     }
 }

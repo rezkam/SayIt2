@@ -1,4 +1,5 @@
 import AVFoundation
+import OpenTelemetryApi
 
 /// Microphone capture, delivered as mono PCM16 at the provider's rate, with a health watch that
 /// keeps the recording going when the device misbehaves.
@@ -15,6 +16,8 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     var onNotice: ((String) -> Void)?
     /// The microphone stopped working and nothing could replace it, on the main queue.
     var onInterrupted: (() -> Void)?
+    /// The dictation span to attach mic logs and events to.
+    var span: Span?
 
     private let session = AVCaptureSession()
     /// Once the session runs, it is only touched on this queue: starting or stopping it while
@@ -32,13 +35,18 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var recoveries = 0
 
     /// Records from the system default microphone.
-    func start(sampleRate: Double) throws {
+    func start(sampleRate: Double, span: Span? = nil) throws {
+        self.span = span
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
-            throw Problem(message: "Allow microphone access", retryable: false)
+            throw Problem(message: "Allow microphone access", retryable: false, errorType: "mic_permission")
         }
-        guard let device = AVCaptureDevice.default(for: .audio) else { throw Problem(message: "No microphone", retryable: false) }
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            throw Problem(message: "No microphone", retryable: false, errorType: "no_microphone")
+        }
         try use(device)
         inUse = device
+        let kind = Self.kind(of: device)
+        span?.setAttribute(key: "sayit2.mic.type", value: kind)
         let output = AVCaptureAudioDataOutput()
         // macOS delivers exactly the wire format: the provider's rate, mono, 16-bit.
         output.audioSettings = [
@@ -47,7 +55,9 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             AVLinearPCMIsNonInterleaved: false,
         ]
         output.setSampleBufferDelegate(self, queue: queue)
-        guard session.canAddOutput(output) else { throw Problem(message: "Microphone unavailable", retryable: false) }
+        guard session.canAddOutput(output) else {
+            throw Problem(message: "Microphone unavailable", retryable: false, errorType: "mic_unavailable")
+        }
         session.addOutput(output)
         let center = NotificationCenter.default
         observers = [
@@ -60,7 +70,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             },
         ]
         started = Date()
-        Telemetry.event("recording from the \(Self.kind(of: device)) microphone")
+        Telemetry.event("recording from the \(kind) microphone", span: span)
         queue.async { [session] in session.startRunning() }   // can take a moment; keep the main thread free
     }
 
@@ -79,7 +89,8 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
             recover(because: "Microphone not responding")
         } else if let silentSince, now.timeIntervalSince(silentSince) > 2, !warnedSilent {
             warnedSilent = true
-            Telemetry.event("microphone silent")
+            span?.addEvent(name: "mic_silent")
+            Telemetry.event("microphone silent", severity: .warn, span: span)
             onNotice?("Microphone is muted or silent")
         }
     }
@@ -98,7 +109,7 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     private var current: AVCaptureDevice? { (session.inputs.first as? AVCaptureDeviceInput)?.device }
 
     private func use(_ device: AVCaptureDevice) throws {
-        let unavailable = Problem(message: "Microphone unavailable", retryable: false)
+        let unavailable = Problem(message: "Microphone unavailable", retryable: false, errorType: "mic_unavailable")
         // Open the new microphone first: if it cannot be opened, the one in use stays.
         guard let input = try? AVCaptureDeviceInput(device: device) else { throw unavailable }
         session.beginConfiguration()
@@ -112,8 +123,12 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// default. Gives up after two attempts in one dictation.
     private func recover(because reason: String) {
         recoveries += 1
-        Telemetry.event("\(reason), recovery \(self.recoveries)")
+        span?.setAttribute(key: "sayit2.mic.recoveries", value: recoveries)
+        span?.addEvent(name: "mic_recovery", attributes: ["reason": .string(reason), "attempt": .int(recoveries)])
+        Telemetry.event("\(reason), recovery \(self.recoveries)", severity: .warn, span: span)
         guard recoveries <= 2 else {
+            span?.addEvent(name: "mic_interrupted")
+            Telemetry.event("microphone lost after \(self.recoveries - 1) recoveries", severity: .error, span: span)
             onInterrupted?()
             return
         }
@@ -121,10 +136,13 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         inUse = fallback ?? inUse
         started = Date()
         lastAudio = nil
+        let activeSpan = span
         queue.async { [self] in
             session.stopRunning()
             if let fallback, fallback != current, (try? use(fallback)) != nil {
-                Telemetry.event("switched to the system default: \(Self.kind(of: fallback))")
+                let kind = Self.kind(of: fallback)
+                activeSpan?.setAttribute(key: "sayit2.mic.type", value: kind)
+                Telemetry.event("switched to the system default: \(kind)", severity: .warn, span: activeSpan)
             }
             session.startRunning()
         }

@@ -47,6 +47,7 @@ final class Dictation {
     private var finishedMono: UInt64?
     private var attempts = 0
     private var sawKeyDown = false
+    private var sawAudio = false
     private var captured = 0        // audio bytes recorded, for the log
     private var ended = false
 
@@ -54,9 +55,6 @@ final class Dictation {
         self.config = config
         self.handsFree = handsFree
         self.typist = typist
-        if let hint = config.missingKeyHint { throw Problem(message: hint, retryable: false) }
-        guard let job = typist.begin() else { throw Problem(message: "No app to type into") }
-        self.job = job
 
         Telemetry.configure(config)
         let span = Telemetry.startSpan("sayit2.dictation")
@@ -64,11 +62,23 @@ final class Dictation {
         if let model = config.model(for: config.provider) { span.setAttribute(key: "gen_ai.request.model", value: model) }
         span.setAttribute(key: "gen_ai.operation.name", value: "speech_to_text")
         span.setAttribute(key: "sayit2.trigger_mode", value: handsFree ? "hands_free" : "hold")
-        if let bundle = job.bundle { span.setAttribute(key: "sayit2.target_app.bundle_id", value: bundle) }
         self.span = span
+
+        if let hint = config.missingKeyHint {
+            throw Self.failStart(span: span, error: Problem(message: hint, retryable: false, errorType: "missing_key"))
+        }
+        guard let job = typist.begin(parentSpan: span) else {
+            throw Self.failStart(span: span, error: Problem(message: "No app to type into", retryable: false, errorType: "no_target_app"))
+        }
+        self.job = job
+        if let bundle = job.bundle { span.setAttribute(key: "sayit2.target_app.bundle_id", value: bundle) }
 
         mic.onAudio = { [weak self] data, level in
             guard let self, self.capturing else { return }
+            if !self.sawAudio {
+                self.sawAudio = true
+                self.span.addEvent(name: "mic_first_audio")
+            }
             self.captured += data.count
             self.audio.append(data)
             self.onLevel?(level)
@@ -80,11 +90,23 @@ final class Dictation {
         }
         mic.onNotice = { [weak self] notice in self?.onNotice?(notice) }
         do {
-            try mic.start(sampleRate: config.provider.sampleRate)
+            try mic.start(sampleRate: config.provider.sampleRate, span: span)
         } catch {
             typist.insert("", for: job)
-            throw error
+            throw Self.failStart(span: span, error: error)
         }
+    }
+
+    private static func failStart(span: Span, error: Error) -> Problem {
+        let problem = error as? Problem ?? Problem(message: "Could not start", retryable: false, errorType: "start_failed")
+        Telemetry.event("could not start: \(problem.message)", severity: .error, span: span)
+        span.setAttribute(key: "sayit2.end_reason", value: "failed")
+        span.setAttribute(key: "sayit2.attempts", value: 0)
+        span.setAttribute(key: "error.type", value: problem.errorType ?? problem.message)
+        span.status = .error(description: problem.message)
+        span.end()
+        Telemetry.flush()
+        return problem
     }
 
     /// Opens the connection. Call after the callbacks are set.
@@ -102,12 +124,14 @@ final class Dictation {
     func stop() {
         guard isRecording else { return }
         isRecording = false
+        span.addEvent(name: "recording_stopped")
         onStopped?()
         // The end of the last word is still travelling through the audio buffers when the key
         // is released, so the microphone stays open a moment longer.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self, self.capturing else { return }
             self.capturing = false
+            self.span.addEvent(name: "mic_stopped")
             self.mic.stop()
         }
     }
@@ -131,6 +155,11 @@ final class Dictation {
         case .elevenlabs: ElevenLabsStream(config: config, previousText: finals.joined(separator: " "))
         }
         stream.span = Telemetry.startSpan("sayit2.stream", parent: span, kind: .client)
+        stream.span?.setAttribute(key: "gen_ai.provider.name", value: provider.rawValue)
+        if let model = config.model(for: provider) {
+            stream.span?.setAttribute(key: "gen_ai.request.model", value: model)
+        }
+        stream.span?.setAttribute(key: "sayit2.stream.attempt", value: attempts)
         stream.logTranscripts = config.telemetryTranscripts
         self.stream = stream
         sent = 0
@@ -186,7 +215,8 @@ final class Dictation {
         let notReady = !stream.isReady && now.timeIntervalSince(stream.startedAt) > 10
         let stuck = finishedAt.map { now.timeIntervalSince($0) > 15 || now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
         if now.timeIntervalSince(stream.lastActivity) > 5 || notReady || stuck {
-            return stream.end(Problem(message: "No response from \(provider.title)"))
+            let reason = notReady ? "handshake_timeout" : stuck ? "finish_timeout" : "activity_timeout"
+            return stream.end(Problem(message: "No response from \(provider.title)", errorType: reason))
         }
         guard stream.isReady else { return }
         // A limited number of messages per tick, so a replay after a reconnect is paced, not dumped at once.
@@ -200,6 +230,7 @@ final class Dictation {
         if !capturing, sent == audio.count, finishedAt == nil {
             finishedAt = now
             finishedMono = DispatchTime.now().uptimeNanoseconds
+            span.addEvent(name: "finish_requested")
             stream.finish()
         }
     }
@@ -241,48 +272,57 @@ final class Dictation {
             catchingUp = true
             Task { [weak self] in
                 do {
-                    try await Credentials.renewChatGPT()
+                    try await Credentials.renewChatGPT(parentSpan: self?.span)
                     guard let self, !self.ended, self.stream == nil else { return }
                     self.connect()
                 } catch {
                     guard let self, !self.ended else { return }
                     // Not renewed. If the server was only out of reach, the retry renews again.
                     self.renewedLogin = false
-                    self.lost(error as? Problem ?? Problem(message: "Sign in to ChatGPT again", retryable: false))
+                    self.lost(error as? Problem ?? Problem(message: "Sign in to ChatGPT again", retryable: false, errorType: "auth_rejected"))
                 }
             }
             return
         }
         failures += 1
-        Telemetry.event("connection lost: \(problem.message), failure \(self.failures)", span: span)
+        let willRetry = problem.retryable && failures <= 3
+        Telemetry.event("connection lost: \(problem.message) (\(problem.errorType ?? "unknown")), failure \(self.failures)",
+                        severity: willRetry ? .warn : .error, span: span)
         // At most three reconnects per dictation. A replay can produce live text and still fail
         // again, so progress must not reset this count, or a failing dictation never ends.
-        guard problem.retryable, failures <= 3 else { return complete(problem: problem.message) }
+        guard willRetry else { return complete(problem: problem) }
         catchingUp = true
         let delay: TimeInterval = [0.5, 2, 5][failures - 1]
+        span.addEvent(name: "retry_scheduled", attributes: [
+            "attempt": .int(failures + 1), "delay_seconds": .double(delay),
+            "error.type": .string(problem.errorType ?? problem.message),
+        ])
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !self.ended, self.stream == nil else { return }
             self.connect()
         }
     }
 
-    private func complete(problem: String?) {
+    private func complete(problem: Problem?) {
         guard !ended else { return }
         close()
         // After a failure, insert the best text received so far rather than losing the speech.
-        let text = config.replaceInFinalText(problem != nil && catchingUp ? shown : currentText)
+        let raw = problem != nil && catchingUp ? shown : currentText
+        let text = config.replaceInFinalText(raw)
+        if text != raw { span.setAttribute(key: "sayit2.text.replaced", value: true) }
         let seconds = Double(captured) / 2 / provider.sampleRate
-        Telemetry.event("dictation finished: \(String(format: "%.1f", seconds)) s of audio, \(text.count) characters", span: span)
+        Telemetry.event("dictation finished: \(String(format: "%.1f", seconds)) s of audio, \(text.count) characters",
+                        severity: problem == nil ? .info : .error, span: span)
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
         if config.telemetryTranscripts {
             Telemetry.event(shown, name: "sayit2.transcript.live", span: span, unified: false)
             Telemetry.event(text, name: "sayit2.transcript.final", span: span, unified: false)
         }
         endSpan(reason: problem == nil ? "completed" : "failed", text: text, problem: problem)
-        onEnd?(problem)
+        onEnd?(problem?.message)
     }
 
-    private func endSpan(reason: String, text: String, problem: String?) {
+    private func endSpan(reason: String, text: String, problem: Problem?) {
         span.setAttribute(key: "sayit2.audio.seconds", value: Double(captured) / 2 / provider.sampleRate)
         span.setAttribute(key: "sayit2.text.characters", value: text.count)
         span.setAttribute(key: "sayit2.text.words", value: text.split(whereSeparator: \.isWhitespace).count)
@@ -293,8 +333,8 @@ final class Dictation {
         }
         if let lang = Usage.language(of: text) { span.setAttribute(key: "sayit2.language", value: lang) }
         if let problem {
-            span.setAttribute(key: "error.type", value: problem)
-            span.status = .error(description: problem)
+            span.setAttribute(key: "error.type", value: problem.errorType ?? problem.message)
+            span.status = .error(description: problem.message)
         } else {
             span.status = .ok
         }

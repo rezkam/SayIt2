@@ -46,6 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         checkAccessibility()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        Telemetry.flush(wait: true)
+    }
+
     private func checkAccessibility() {
         let now = AXIsProcessTrusted()
         guard now != trusted else { return }
@@ -71,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictation.onStopped = { [weak self] in self?.refresh() }
             dictation.onEnd = { [weak self, weak dictation] problem in
                 self?.dictations.removeAll { $0 === dictation }
-                Telemetry.event("recording ended: \(problem ?? "ok")", span: dictation?.span)
+                Telemetry.event("recording ended: \(problem ?? "ok")", severity: problem == nil ? .info : .error, span: dictation?.span)
                 if let problem { self?.indicator.flash(problem) }
                 self?.refresh()
             }
@@ -81,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             dictation.start()
         } catch {
             let message = (error as? Problem)?.message ?? "Could not start"
-            Telemetry.event("could not start: \(message)")
+            if !(error is Problem) { Telemetry.event("could not start: \(message)", severity: .error) }
             indicator.flash(message)
         }
         refresh()

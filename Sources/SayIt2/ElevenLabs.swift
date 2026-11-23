@@ -48,7 +48,7 @@ final class ElevenLabsStream: Transcriber {
         let options = config.parameters(for: .elevenlabs)
         func value(_ name: String) -> String? { options.first { $0.name == name }?.value }
         func enabled(_ name: String) -> Bool { value(name)?.lowercased() == "true" }
-        func invalid(_ message: String) -> Problem { Problem(message: message, retryable: false) }
+        func invalid(_ message: String) -> Problem { Problem(message: message, retryable: false, errorType: "invalid_config") }
         let strategy = value("commit_strategy") ?? "manual"
         let edit = value("transcript_edit")
         let redact = value("entity_redaction") != nil
@@ -86,6 +86,7 @@ final class ElevenLabsStream: Transcriber {
             throw invalid("ElevenLabs keyterm library exceeds provider limits")
         }
         automatic = strategy != "manual"
+        span?.setAttribute(key: "sayit2.stream.commit_strategy", value: strategy)
         replacementEvent = redact ? "redacted_transcript" : edit != nil ? "edited_transcript" : nil
         let local = ["keyterm_library", "previous_text", "token"]
         let query = options.filter { !local.contains($0.name) }
@@ -114,7 +115,7 @@ final class ElevenLabsStream: Transcriber {
             rollingTimeout = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(8))
                 guard !Task.isCancelled, let self else { return }
-                self.end(Problem(message: "ElevenLabs did not confirm a segment"))
+                self.end(Problem(message: "ElevenLabs did not confirm a segment", errorType: "segment_timeout"))
             }
         }
         sendChunk(frame, commit: commit, first: first)
@@ -133,6 +134,7 @@ final class ElevenLabsStream: Transcriber {
 
     override func finish() {
         finishing = true
+        span?.addEvent(name: "finish_requested")
         if sent == 0 { return end(nil) }
         requestStopCommit()
         deadline = Task { [weak self] in
@@ -140,7 +142,7 @@ final class ElevenLabsStream: Transcriber {
             try? await Task.sleep(for: .seconds(limit))
             guard !Task.isCancelled, let self else { return }
             let missingFinal = !self.stopCommitSent || self.pendingCommit != nil || !self.partial.isEmpty
-            self.end(missingFinal ? Problem(message: "ElevenLabs did not confirm the final text", retryable: false) : nil)
+            self.end(missingFinal ? Problem(message: "ElevenLabs did not confirm the final text", retryable: false, errorType: "finish_timeout") : nil)
         }
         finishIfDrained()
     }
@@ -187,7 +189,12 @@ final class ElevenLabsStream: Transcriber {
         let raw = message["text"] as? String ?? ""
         let text = raw.allSatisfy(\.isWhitespace) ? "" : raw
         switch type {
-        case "session_started": ready = true
+        case "session_started":
+            ready = true
+            if let id = message["session_id"] as? String, !id.isEmpty {
+                span?.setAttribute(key: "sayit2.provider.session_id", value: id)
+            }
+            span?.addEvent(name: "session_started")
         case "partial_transcript":
             // Empty keepalives do not supersede the last recognized words.
             if !text.isEmpty {
@@ -222,7 +229,7 @@ final class ElevenLabsStream: Transcriber {
                 // An unsolicited commit has no known audio boundary. Do not replay it.
                 segments.append(Segment(original: text))
                 partial = ""
-                return end(Problem(message: "ElevenLabs committed audio unexpectedly", retryable: false))
+                return end(Problem(message: "ElevenLabs committed audio unexpectedly", retryable: false, errorType: "unsolicited_commit"))
             }
             segments.append(Segment(original: text, covered: covered))
             partial = ""
@@ -240,6 +247,7 @@ final class ElevenLabsStream: Transcriber {
         case "committed_transcript_with_timestamps", "diarized_transcript", "speakers_merged", "speaker_names", "committed_transcript_entities": break
         case "commit_throttled":
             span?.addEvent(name: "commit_throttled")
+            Telemetry.event("ElevenLabs commit throttled", severity: .warn, span: span)
             if finishing, stopCommitSent {
                 retryStopCommit()
                 return
@@ -249,12 +257,19 @@ final class ElevenLabsStream: Transcriber {
             nextRollingCommit = Date().addingTimeInterval(1.2)
             requestStopCommit()
         case "auth_error", "quota_exceeded", "unaccepted_terms", "invalid_request", "input_error", "chunk_size_exceeded":
-            return fail(type, retryable: false)
+            return fail(type, detail: message["error"] as? String, retryable: false)
         case "insufficient_audio_activity":
-            return fail(type, retryable: false)
+            return fail(type, detail: message["error"] as? String, retryable: false)
         case "rate_limited", "queue_overflow", "resource_exhausted", "transcriber_error", "session_time_limit_exceeded", "error":
-            return fail(type, retryable: true)
-        default: return
+            return fail(type, detail: message["error"] as? String, retryable: true)
+        default:
+            if type.hasSuffix("_error") || message["error"] != nil {
+                let code = type.isEmpty ? "provider_error" : type
+                let retryable = !["auth", "invalid", "quota", "terms"].contains { code.contains($0) }
+                let detail = message["error"] as? String ?? (message["error"] as? [String: Any])?["message"] as? String ?? message["message"] as? String
+                return fail(code, detail: detail, retryable: retryable)
+            }
+            return
         }
         flush()
         finishIfDrained()
@@ -290,30 +305,41 @@ final class ElevenLabsStream: Transcriber {
             onFinal?("[redaction unavailable]", lastCommit)
             onInterim?("")
         }
-        if missedRedaction { problem = Problem(message: "ElevenLabs redaction unavailable", retryable: false) }
+        if missedRedaction { problem = Problem(message: "ElevenLabs redaction unavailable", retryable: false, errorType: "redaction_unavailable") }
         // Scribe does not document an exact automatic-commit audio byte offset. Replaying
         // after a committed segment could insert it twice, so keep recognized text and stop.
         if automatic, sawCommit { problem?.retryable = false }
         super.end(problem)
     }
 
-    private func fail(_ type: String, retryable: Bool) {
+    private func fail(_ type: String, detail: String?, retryable: Bool) {
+        let note = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        Telemetry.event("ElevenLabs error (\(type))\(note.isEmpty ? "" : ": \(String(note.prefix(160)))")", severity: .error, span: span)
         let message = switch type {
         case "auth_error": "Check the ElevenLabs key in Settings"
         case "quota_exceeded": "ElevenLabs quota exceeded"
         case "unaccepted_terms": "Accept the Scribe terms in ElevenLabs"
         case "insufficient_audio_activity": "ElevenLabs ended the stream after silence"
         case "invalid_request", "input_error", "chunk_size_exceeded": "ElevenLabs rejected the config or audio"
+        case "rate_limited": "ElevenLabs rate limited"
         default: "ElevenLabs connection interrupted"
         }
         end(Problem(message: message, retryable: retryable, errorType: type))
     }
 
-    override func closed(status: Int) -> Problem {
+    override func closed(status: Int, closeCode: Int, reason: String?) -> Problem {
         switch status {
-        case 401, 403: Problem(message: "Check the ElevenLabs key in Settings", retryable: false)
-        case 400, 422: Problem(message: "ElevenLabs rejected the config", retryable: false)
-        default: Problem(message: "ElevenLabs connection lost")
+        case 401, 403: return Problem(message: "Check the ElevenLabs key in Settings", retryable: false, errorType: "auth_error")
+        case 402: return Problem(message: "ElevenLabs quota exceeded", retryable: false, errorType: "quota_exceeded")
+        case 400, 422: return Problem(message: "ElevenLabs rejected the config", retryable: false, errorType: "invalid_request")
+        case 429: return Problem(message: "ElevenLabs rate limited", errorType: "rate_limited")
+        case 500...599: return Problem(message: "ElevenLabs server error", errorType: "server_error")
+        default: break
+        }
+        switch closeCode {
+        case 1002, 1003, 1008: return Problem(message: "ElevenLabs rejected the stream", retryable: false, errorType: "ws_\(closeCode)")
+        case 1009: return Problem(message: "ElevenLabs audio chunk too large", retryable: false, errorType: "ws_1009")
+        default: return Problem(message: "ElevenLabs connection lost", errorType: closeCode > 0 ? "ws_\(closeCode)" : "connection_lost")
         }
     }
 }
