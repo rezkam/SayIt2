@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if trusted != true { return "Grant Accessibility Access…" }
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
         let config = Config.load()
-        if config.provider == .deepgram, config.deepgramKey == nil { return "Add the Deepgram key in Settings" }
+        if let hint = config.missingKeyHint { return hint }
         if config.provider == .chatgpt, !Credentials.hasChatGPTLogin { return "Sign in to ChatGPT (ChatGPT app or codex)" }
         return nil
     }

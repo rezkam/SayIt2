@@ -275,7 +275,7 @@
   .field.wide { grid-column: 1 / -1; }
   .field label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
   .field .hint { font-size: 12px; color: var(--muted); }
-  input[type="text"], input[type="password"], input[type="number"], input[type="date"], textarea {
+  input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[data-key]:not([type]), input[data-list-key]:not([type]), select, textarea {
     width: 100%;
     background: #0b0b0b;
     color: var(--text);
@@ -458,6 +458,7 @@
       <div class="seg" id="settings-sub-seg">
         <button type="button" data-sub="providers" class="active">Providers</button>
         <button type="button" data-sub="deepgram">Deepgram</button>
+        <button type="button" data-sub="elevenlabs">ElevenLabs</button>
         <button type="button" data-sub="telemetry">Telemetry</button>
       </div>
     </div>
@@ -488,6 +489,13 @@
               Low-latency streaming with configurable model, language hints, formatting, vocabulary keyterms,
               and regional servers. Configure in the Deepgram tab.
             </div>
+          </button>
+          <button type="button" class="provider-card" data-provider="elevenlabs">
+            <div class="provider-top">
+              <span class="provider-name">ELEVENLABS SCRIBE</span>
+              <span class="status-chip" id="status-elevenlabs">CHECKING</span>
+            </div>
+            <div class="muted">Realtime transcription with optional transcript editing.</div>
           </button>
         </div>
       </div>
@@ -609,9 +617,50 @@
           </div>
           <div class="field wide">
             <label for="f-dg-extra">Other <code>deepgram.*</code> Parameters</label>
-            <textarea id="f-dg-extra" placeholder="utterance_end_ms = 1000"></textarea>
+            <textarea id="f-dg-extra" data-extra-prefix="deepgram." placeholder="utterance_end_ms = 1000"></textarea>
             <span class="hint">Any extra Deepgram query parameters in <code>name = value</code> format (one per line).</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="cfg-elevenlabs">
+      <div class="panel">
+        <div class="panel-head"><h2>ELEVENLABS <span class="accent">SCRIBE REALTIME</span></h2></div>
+        <div class="form-grid">
+          <div class="field wide">
+            <label for="f-el-key">API Key</label>
+            <div class="secret-row">
+              <input id="f-el-key" type="password" data-key="elevenlabs.api_key" autocomplete="off">
+              <button type="button" class="btn" data-reveal="f-el-key">Show</button>
+            </div>
+          </div>
+          <label class="field">Model<input data-key="elevenlabs.model_id" placeholder="scribe_v3_live"></label>
+          <label class="field">Language<input data-key="elevenlabs.language_code" placeholder="Automatic"></label>
+          <label class="field">Secondary Languages<input data-list-key="elevenlabs.secondary_languages" placeholder="en, fa"></label>
+          <label class="field">Commit Strategy<input data-key="elevenlabs.commit_strategy" list="dl-el-commit" placeholder="manual">
+            <datalist id="dl-el-commit"><option value="manual"><option value="vad"><option value="turn_prediction"></datalist>
+          </label>
+          <label class="field wide">Transcript Editing Instruction
+            <input data-key="elevenlabs.transcript_edit" maxlength="2000" placeholder="Write dates in ISO 8601 format">
+            <span class="hint">Experimental, billed separately. Cannot be combined with entity detection or redaction.</span>
+          </label>
+          <label class="field">Entity Detection<input data-key="elevenlabs.entity_detection" placeholder="Off"></label>
+          <label class="field">Entity Redaction<input data-key="elevenlabs.entity_redaction" placeholder="Off"></label>
+          <label class="field">Keyterms<textarea data-lines-key="elevenlabs.keyterms" placeholder="One term per line"></textarea></label>
+          <label class="field">Keyterm Library<textarea data-lines-key="elevenlabs.keyterm_library" placeholder="One term per line (Scribe v3 Live)"></textarea></label>
+          <label class="field wide">Other <code>elevenlabs.*</code> Parameters
+            <textarea data-extra-prefix="elevenlabs." placeholder="enable_logging = false"></textarea>
+            <span class="hint">One name = value per line. See the config template for advanced options.</span>
+          </label>
+        </div>
+        <div class="toggles">
+          <label class="toggle-row">Multilingual Mode<input type="checkbox" data-bool-key="elevenlabs.multilang_mode"></label>
+          <label class="toggle-row">Remove Filler Words<input type="checkbox" data-bool-key="elevenlabs.no_verbatim"></label>
+          <label class="toggle-row">Filter Background Audio (incompatible with timestamps)<input type="checkbox" data-bool-key="elevenlabs.filter_background_audio"></label>
+          <label class="toggle-row">Include Timestamps<input type="checkbox" data-bool-key="elevenlabs.include_timestamps"></label>
+          <label class="toggle-row">Include Language Metadata<input type="checkbox" data-bool-key="elevenlabs.include_language_detection"></label>
+          <label class="toggle-row">Include Speaker Metadata<input type="checkbox" data-bool-key="elevenlabs.diarize"></label>
         </div>
       </div>
     </div>
@@ -664,10 +713,10 @@
 <script>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const MANAGED_DG_KEYS = new Set(
+const MANAGED_KEYS = new Set(
   Array.from(document.querySelectorAll("[data-key],[data-list-key],[data-lines-key],[data-bool-key]"))
     .map(el => el.dataset.key || el.dataset.listKey || el.dataset.linesKey || el.dataset.boolKey)
-    .filter(k => k && k.startsWith("deepgram."))
+    .filter(Boolean)
 );
 
 let store = { schemaVersion: 1, days: {} };
@@ -679,7 +728,8 @@ let lastSyncText = "LIVE";
 let activeTab = "stats";
 let configLoaded = false;
 let loadedMap = {};
-let extraDgKeys = [];
+let extraKeys = [];
+const extraFields = document.querySelectorAll("[data-extra-prefix]");
 let dirty = false;
 let toastTimer = null;
 
@@ -712,9 +762,10 @@ function setTab(tab) {
   if (activeTab === "settings" && !dirty) loadConfig();
 }
 function setSettingsSub(sub) {
-  document.querySelectorAll("#settings-sub-seg button").forEach(b => b.classList.toggle("active", b.dataset.sub === sub));
-  ["providers","deepgram","telemetry"].forEach(id => {
-    document.getElementById("cfg-" + id).style.display = (id === sub) ? "block" : "none";
+  document.querySelectorAll("#settings-sub-seg button").forEach(b => {
+    const selected = b.dataset.sub === sub;
+    b.classList.toggle("active", selected);
+    document.getElementById("cfg-" + b.dataset.sub).style.display = selected ? "block" : "none";
   });
 }
 
@@ -985,14 +1036,14 @@ function applyConfigData(cfg, forceText = false) {
   const last = (k, def = "") => (map[k] && map[k].length) ? map[k][map[k].length - 1] : def;
 
   const provider = last("provider", "chatgpt");
-  document.getElementById("card-chatgpt").classList.toggle("active", provider === "chatgpt");
-  document.getElementById("card-deepgram").classList.toggle("active", provider === "deepgram");
-  const cgStatus = document.getElementById("status-chatgpt");
-  cgStatus.textContent = cfg.chatgptSignedIn ? "SIGNED IN" : "SIGN IN NEEDED";
-  cgStatus.className = "status-chip " + (cfg.chatgptSignedIn ? "ok" : "warn");
-  const dgStatus = document.getElementById("status-deepgram");
-  dgStatus.textContent = last("deepgram.api_key") ? "API KEY SET" : "KEY MISSING";
-  dgStatus.className = "status-chip " + (last("deepgram.api_key") ? "ok" : "warn");
+  document.querySelectorAll(".provider-card").forEach(card => {
+    const id = card.dataset.provider, chat = id === "chatgpt";
+    card.classList.toggle("active", provider === id);
+    const status = document.getElementById("status-" + id);
+    const ready = chat ? cfg.chatgptSignedIn : !!last(id + ".api_key");
+    status.textContent = ready ? (chat ? "SIGNED IN" : "API KEY SET") : (chat ? "SIGN IN NEEDED" : "KEY MISSING");
+    status.className = "status-chip " + (ready ? "ok" : "warn");
+  });
 
   document.querySelectorAll("[data-bool-key]").forEach(el => {
     el.checked = last(el.dataset.boolKey, "false").toLowerCase() === "true";
@@ -1002,15 +1053,12 @@ function applyConfigData(cfg, forceText = false) {
     document.querySelectorAll("[data-key]").forEach(el => { el.value = last(el.dataset.key, ""); });
     document.querySelectorAll("[data-list-key]").forEach(el => { el.value = (map[el.dataset.listKey] || []).join(", "); });
     document.querySelectorAll("[data-lines-key]").forEach(el => { el.value = (map[el.dataset.linesKey] || []).join("\n"); });
-    const extraLines = [];
-    extraDgKeys = [];
-    for (const [k, v] of (cfg.entries || [])) {
-      if (k.startsWith("deepgram.") && !MANAGED_DG_KEYS.has(k)) {
-        extraLines.push(k.slice(9) + " = " + v);
-        if (!extraDgKeys.includes(k)) extraDgKeys.push(k);
-      }
-    }
-    document.getElementById("f-dg-extra").value = extraLines.join("\n");
+    extraKeys = [];
+    extraFields.forEach(el => {
+      const prefix = el.dataset.extraPrefix;
+      el.value = (cfg.entries || []).filter(([k]) => k.startsWith(prefix) && !MANAGED_KEYS.has(k))
+        .map(([k, v]) => { extraKeys.push(k); return k.slice(prefix.length) + " = " + v; }).join("\n");
+    });
     setDirty(false);
   }
 }
@@ -1052,16 +1100,19 @@ function collectChangedTextUpdates() {
   document.querySelectorAll("[data-lines-key]").forEach(el => {
     next[el.dataset.linesKey] = el.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   });
-  for (const k of extraDgKeys) next[k] = [];
-  for (const line of document.getElementById("f-dg-extra").value.split(/\r?\n/)) {
-    const idx = line.indexOf("=");
-    if (idx <= 0) continue;
-    const rawK = line.slice(0, idx).trim(), val = line.slice(idx + 1).trim();
-    if (!rawK || rawK.startsWith("#") || !val) continue;
-    const fullK = rawK.startsWith("deepgram.") ? rawK : "deepgram." + rawK;
-    if (MANAGED_DG_KEYS.has(fullK)) continue;
-    (next[fullK] ||= []).push(val);
-  }
+  for (const k of extraKeys) next[k] = [];
+  extraFields.forEach(el => {
+    const prefix = el.dataset.extraPrefix;
+    for (const line of el.value.split(/\r?\n/)) {
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const rawK = line.slice(0, idx).trim(), val = line.slice(idx + 1).trim();
+      if (!rawK || rawK.startsWith("#") || !val) continue;
+      const fullK = rawK.startsWith(prefix) ? rawK : prefix + rawK;
+      if (MANAGED_KEYS.has(fullK)) continue;
+      (next[fullK] ||= []).push(val);
+    }
+  });
   const diff = {};
   for (const [k, vals] of Object.entries(next)) {
     if (!arrEq(vals, loadedMap[k] || [])) diff[k] = vals;
@@ -1122,7 +1173,7 @@ document.querySelectorAll(".provider-card").forEach(card => {
 document.querySelectorAll("[data-bool-key]").forEach(el => {
   el.onchange = () => saveUpdates({ [el.dataset.boolKey]: [el.checked ? "true" : "false"] });
 });
-document.querySelectorAll("[data-key], [data-list-key], [data-lines-key], #f-dg-extra").forEach(el => {
+document.querySelectorAll("[data-key], [data-list-key], [data-lines-key], [data-extra-prefix]").forEach(el => {
   el.oninput = () => { if (configLoaded) setDirty(true); };
 });
 document.querySelectorAll("[data-reveal]").forEach(btn => {

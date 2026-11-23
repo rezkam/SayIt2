@@ -132,7 +132,7 @@ class Transcriber {
         guard !spanEnded else { return }
         spanEnded = true
         if let problem {
-            span?.setAttribute(key: "error.type", value: problem.message)
+            span?.setAttribute(key: "error.type", value: problem.errorType ?? problem.message)
             span?.status = .error(description: problem.message)
         } else {
             span?.status = .ok

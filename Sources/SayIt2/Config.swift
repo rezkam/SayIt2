@@ -4,41 +4,92 @@ import Foundation
 struct Problem: Error {
     let message: String
     var retryable = true
+    var errorType: String? = nil
     /// The ChatGPT sign-in was rejected as expired; renewing it may fix this.
     var renewLogin = false
 }
 
 enum Provider: String, CaseIterable {
-    case chatgpt, deepgram
+    case chatgpt, deepgram, elevenlabs
 
-    var title: String { self == .chatgpt ? "ChatGPT" : "Deepgram Nova-3" }
+    var title: String {
+        switch self {
+        case .chatgpt: "ChatGPT"
+        case .deepgram: "Deepgram Nova-3"
+        case .elevenlabs: "ElevenLabs Scribe"
+        }
+    }
+    var modelParameter: String { self == .elevenlabs ? "model_id" : "model" }
+    var defaultModel: String? {
+        switch self {
+        case .chatgpt: nil
+        case .deepgram: "nova-3"
+        case .elevenlabs: "scribe_v3_live"
+        }
+    }
+    var defaultURL: String {
+        switch self {
+        case .chatgpt: ""
+        case .deepgram: "wss://api.deepgram.com/v1/listen"
+        case .elevenlabs: "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+        }
+    }
+    var fixedParameters: [String: String] {
+        switch self {
+        case .chatgpt: [:]
+        case .deepgram: ["encoding": "linear16", "sample_rate": "16000", "channels": "1"]
+        case .elevenlabs: ["audio_format": "pcm_16000", "sample_rate": "16000", "channels": "1"]
+        }
+    }
     /// Wire sample rate: the rates the reference apps were captured using.
     var sampleRate: Double { self == .chatgpt ? 48000 : 16000 }
-    /// Bytes per audio message: 2,048 samples for ChatGPT, 100 ms for Deepgram.
+    /// Bytes per audio message: 2,048 samples for ChatGPT, 100 ms for Deepgram and ElevenLabs.
     var frameBytes: Int { self == .chatgpt ? 4096 : 3200 }
     /// Most audio messages sent per 40 ms tick, which caps how fast a replay after a reconnect
     /// runs. ChatGPT's recognizer gave up on a long replay at 8.5x real time and kept up at 3.2x.
-    var framesPerTick: Int { self == .chatgpt ? 3 : 8 }
+    var framesPerTick: Int {
+        switch self {
+        case .chatgpt: 3
+        case .deepgram: 8
+        case .elevenlabs: 1
+        }
+    }
 }
 
 /// All settings, read from the plain text file ~/.config/sayit2/config before every dictation.
 struct Config {
     var provider = Provider.chatgpt
-    var deepgramKey: String?
-    var deepgramURL = "wss://api.deepgram.com/v1/listen"
-    /// Every `deepgram.<name> = <value>` line, sent to Deepgram as a query parameter.
-    var deepgramParameters: [URLQueryItem] = []
+    private var keys: [Provider: String] = [:]
+    private var urls: [Provider: String] = [:]
+    private var options: [Provider: [URLQueryItem]] = [:]
+
+    func key(for provider: Provider) -> String? { keys[provider] }
+    func url(for provider: Provider) -> String { urls[provider] ?? provider.defaultURL }
+    var missingKeyHint: String? {
+        guard provider != .chatgpt, key(for: provider) == nil else { return nil }
+        return "Add the \(provider.title) key in Settings"
+    }
+    func model(for provider: Provider) -> String? {
+        options[provider]?.first { $0.name == provider.modelParameter }?.value ?? provider.defaultModel
+    }
+    func parameters(for provider: Provider) -> [URLQueryItem] {
+        var items = options[provider] ?? []
+        if !items.contains(where: { $0.name == provider.modelParameter }), let model = provider.defaultModel {
+            items.append(URLQueryItem(name: provider.modelParameter, value: model))
+        }
+        items += provider.fixedParameters.sorted { $0.key < $1.key }.compactMap { name, value in
+            if provider == .elevenlabs, name != "audio_format" { return nil }
+            return URLQueryItem(name: name, value: value)
+        }
+        return items
+    }
     /// When true, raw provider messages and final transcripts are written to otel/logs.jsonl.
     var telemetryTranscripts = false
     /// Optional OTLP/HTTP JSON base endpoint (e.g. Grafana Cloud) and Authorization header.
     var telemetryEndpoint: String?
     var telemetryAuthorization: String?
 
-    var deepgramModel: String { deepgramParameters.first { $0.name == "model" }?.value ?? "nova-3" }
-
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
-    /// These describe the audio SayIt2 sends, so the file cannot change them.
-    private static let fixed = ["encoding": "linear16", "sample_rate": "16000", "channels": "1"]
 
     /// Reads the file, creating it with every option listed if it does not exist yet.
     static func load() -> Config {
@@ -50,25 +101,23 @@ struct Config {
         for (key, value) in entries((try? String(contentsOf: file, encoding: .utf8)) ?? "") {
             if key == "provider" {
                 config.provider = Provider(rawValue: value) ?? config.provider
-            } else if key == "deepgram.api_key" {
-                config.deepgramKey = value.isEmpty ? nil : value
-            } else if key == "deepgram.url" {
-                if !value.isEmpty { config.deepgramURL = value }
             } else if key == "telemetry.transcripts" {
                 config.telemetryTranscripts = value.lowercased() == "true"
             } else if key == "telemetry.otlp.endpoint" {
                 config.telemetryEndpoint = value.isEmpty ? nil : value
             } else if key == "telemetry.otlp.authorization" {
                 config.telemetryAuthorization = value.isEmpty ? nil : value
-            } else if key.hasPrefix("deepgram."), !value.isEmpty, fixed[String(key.dropFirst(9))] == nil {
-                config.deepgramParameters.append(URLQueryItem(name: String(key.dropFirst(9)), value: value))
+            } else if let dot = key.firstIndex(of: "."), let provider = Provider(rawValue: String(key[..<dot])), provider != .chatgpt {
+                let name = String(key[key.index(after: dot)...])
+                if name == "api_key" {
+                    config.keys[provider] = value.isEmpty ? nil : value
+                } else if name == "url" {
+                    if provider == .deepgram, !value.isEmpty { config.urls[provider] = value }
+                } else if !value.isEmpty, provider.fixedParameters[name] == nil {
+                    config.options[provider, default: []].append(URLQueryItem(name: name, value: value))
+                }
             }
         }
-        // Without a model Deepgram silently falls back to its old `base` model.
-        if !config.deepgramParameters.contains(where: { $0.name == "model" }) {
-            config.deepgramParameters.append(URLQueryItem(name: "model", value: "nova-3"))
-        }
-        config.deepgramParameters += fixed.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         return config
     }
 
@@ -120,7 +169,7 @@ struct Config {
     # SayIt2 settings. Saved changes apply to the next dictation.
     # Lines starting with # are ignored.
 
-    # Which service transcribes: chatgpt or deepgram. The menu bar menu changes this line.
+    # Which service transcribes: chatgpt, deepgram, or elevenlabs. The menu bar menu changes this line.
     provider = chatgpt
 
     # ---------- ChatGPT ----------
@@ -196,6 +245,40 @@ struct Config {
     # encoding = linear16, sample_rate = 16000, channels = 1.
     # Not useful for typing dictation: callback, callback_method, multichannel,
     # diarize_model (speaker labels), keywords (models older than Nova-3).
+
+    # ---------- ElevenLabs ----------
+    elevenlabs.api_key =
+    # Default: scribe_v3_live. Older realtime models may not support every option.
+    # elevenlabs.model_id = scribe_v3_live
+    # Automatic language detection if unset. Repeat secondary_languages for hints.
+    # elevenlabs.language_code = en
+    # elevenlabs.secondary_languages = fa
+    # elevenlabs.multilang_mode = true
+    # elevenlabs.include_language_detection = true
+    # elevenlabs.keyterms = example term
+    # elevenlabs.keyterm_library = example term
+    # elevenlabs.no_verbatim = true
+    # Defaults to manual. Also accepts vad and turn_prediction. If an automatic stream
+    # disconnects after recognizing a committed segment, it inserts its text without replay.
+    # elevenlabs.commit_strategy = manual
+    # elevenlabs.vad_threshold = 0.4
+    # elevenlabs.vad_silence_threshold_secs = 1.5
+    # elevenlabs.min_speech_duration_ms = 100
+    # elevenlabs.min_silence_duration_ms = 100
+    # Background filtering cannot be combined with timestamps.
+    # elevenlabs.filter_background_audio = true
+    # elevenlabs.include_timestamps = true
+    # elevenlabs.diarize = true
+    # Editing cannot be combined with entity detection or redaction.
+    # elevenlabs.transcript_edit = Write dates in ISO 8601 format
+    # elevenlabs.entity_detection = all
+    # elevenlabs.entity_redaction = pii
+    # elevenlabs.entity_redaction_mode = enumerated_entity_type
+    # elevenlabs.keepalive_interval_ms = 1000
+    # Provider-side logging is separate from SayIt2 telemetry. Zero retention may require an eligible plan.
+    # elevenlabs.enable_logging = false
+    # Other elevenlabs.* settings are passed as query options. The server URL and audio
+    # format (16 kHz mono PCM) are fixed.
 
     # ---------- Telemetry ----------
     # When true, the exact provider messages and the final text are written to

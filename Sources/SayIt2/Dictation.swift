@@ -51,14 +51,14 @@ final class Dictation {
         self.config = config
         self.handsFree = handsFree
         self.typist = typist
-        if config.provider == .deepgram, config.deepgramKey == nil { throw Problem(message: "Add the Deepgram key in the config") }
+        if let hint = config.missingKeyHint { throw Problem(message: hint, retryable: false) }
         guard let job = typist.begin() else { throw Problem(message: "No app to type into") }
         self.job = job
 
         Telemetry.configure(config)
         let span = Telemetry.startSpan("sayit2.dictation")
         span.setAttribute(key: "gen_ai.provider.name", value: config.provider.rawValue)
-        if config.provider == .deepgram { span.setAttribute(key: "gen_ai.request.model", value: config.deepgramModel) }
+        if let model = config.model(for: config.provider) { span.setAttribute(key: "gen_ai.request.model", value: model) }
         span.setAttribute(key: "gen_ai.operation.name", value: "speech_to_text")
         span.setAttribute(key: "sayit2.trigger_mode", value: handsFree ? "hands_free" : "hold")
         if let bundle = job.bundle { span.setAttribute(key: "sayit2.target_app.bundle_id", value: bundle) }
@@ -122,7 +122,11 @@ final class Dictation {
 
     private func connect() {
         attempts += 1
-        let stream: Transcriber = provider == .chatgpt ? ChatGPTStream() : DeepgramStream(config: config)
+        let stream: Transcriber = switch provider {
+        case .chatgpt: ChatGPTStream()
+        case .deepgram: DeepgramStream(config: config)
+        case .elevenlabs: ElevenLabsStream(config: config, previousText: finals.joined(separator: " "))
+        }
         stream.span = Telemetry.startSpan("sayit2.stream", parent: span, kind: .client)
         stream.logTranscripts = config.telemetryTranscripts
         self.stream = stream
@@ -179,9 +183,7 @@ final class Dictation {
         let notReady = !stream.isReady && now.timeIntervalSince(stream.startedAt) > 10
         let stuck = finishedAt.map { now.timeIntervalSince(max($0, stream.lastMessage)) > 10 } ?? false
         if now.timeIntervalSince(stream.lastActivity) > 5 || notReady || stuck {
-            stream.cancel()
-            self.stream = nil
-            return lost(Problem(message: "No response from \(provider.title)"))
+            return stream.end(Problem(message: "No response from \(provider.title)"))
         }
         guard stream.isReady else { return }
         // A limited number of messages per tick, so a replay after a reconnect is paced, not dumped at once.

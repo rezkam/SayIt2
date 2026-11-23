@@ -63,7 +63,7 @@ enum Usage {
             if r == "completed" { day.completed += 1 } else if r == "failed" { day.failed += 1 } else if r == "cancelled" { day.cancelled += 1 }
         }
         let provider: String = if case .string(let p) = a["gen_ai.provider.name"] { p } else { "unknown" }
-        let model = if provider == "deepgram", case .string(let m) = a["gen_ai.request.model"] { "deepgram/\(m)" } else { provider }
+        let model = if case .string(let m) = a["gen_ai.request.model"] { "\(provider)/\(m)" } else { provider }
         day.byModel[model, default: Bucket()].add(secs, words, chars)
         day.byHour[hourKey, default: Bucket()].add(secs, words, chars)
         if case .string(let l) = a["sayit2.language"], !l.isEmpty { day.byLanguage[l, default: Bucket()].add(secs, words, chars) }

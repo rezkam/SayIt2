@@ -6,7 +6,7 @@ No window, no sounds, no clipboard use.
 
 - **Hold** Right Option to dictate, release to finish.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
-- Pick **ChatGPT** or **Deepgram Nova-3** in the menu bar menu. SayIt2 records from the
+- Pick **ChatGPT**, **Deepgram Nova-3**, or **ElevenLabs Scribe** in the menu bar menu. SayIt2 records from the
   system default microphone and recovers to the current default if it is unplugged.
 - If focus has left the text field when the text is ready (another app, window, or field),
   it waits and inserts the text when you return to that field.
@@ -41,6 +41,18 @@ file directly. Saved changes apply on the next dictation.
 - **Deepgram** needs `deepgram.api_key`. Every other `deepgram.*` line is passed to Deepgram's
   live streaming API as a parameter (model, language, formatting, key terms and so on); the
   file lists them all with a short explanation.
+
+- **ElevenLabs** needs `elevenlabs.api_key` and defaults to `scribe_v3_live`. Set it up
+  under **Settings… > ElevenLabs**. Use `transcript_edit` to give the model a formatting
+  instruction for each committed segment. It is experimental, adds cost, and cannot be
+  combined with entity detection or redaction. Live text is unedited, and a missing edit
+  falls back to the original. With redaction on, SayIt2 hides unredacted text in the pill,
+  skips raw message logging, and inserts `[redaction unavailable]` if redaction fails.
+  Manual commits are the default. Voice activity and turn prediction segment text on the
+  server. If an automatic stream drops after a commit, SayIt2 inserts the recognized text
+  without replaying the audio, since the service does not give an exact replay boundary.
+  The config template lists more options. Provider-side logging is separate from the
+  local telemetry settings, and requesting zero retention may require an enterprise plan.
 
 ## Telemetry and usage
 

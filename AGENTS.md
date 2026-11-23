@@ -16,8 +16,9 @@ dictation in the ChatGPT desktop app.
    connection, expired sign-in, microphone loss, focus away, the target app quitting), the
    words recognized so far must reach the text field. Text waits for its field as long as it
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
+   When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,500 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,900 lines of Swift (plus `Resources/dashboard.html`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -48,7 +49,7 @@ dictation in the ChatGPT desktop app.
 
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
-- Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3),
+- Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3, ElevenLabs Scribe),
   Dashboard…, Settings…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
@@ -73,6 +74,12 @@ dictation in the ChatGPT desktop app.
   renewed tokens back, so the user never has to open the ChatGPT app.
 - Deepgram Nova-3 streaming, with its API key and every parameter in the config file.
   `interim_results=true` (needed for live words) and `smart_format=true` by default.
+- ElevenLabs Scribe streaming, defaulting to `scribe_v3_live`, with its key and options in
+  the config file. Sends raw PCM16 16 kHz mono in 100 ms chunks. Manual commits are the
+  default; provider-side VAD and turn prediction are optional commit strategies, not ways
+  to end a dictation. A missing edit falls back to the original. Redaction mode hides raw
+  partials and skips raw provider logs. If redaction fails, it inserts a marker instead of
+  unredacted text. Metadata is not typed.
 - Microphone: the system default. If it is lost mid-dictation, recording switches to the current
   system default without a message. Only real problems, such as a muted microphone, are shown.
 - Audio formats match the working reference apps: ChatGPT PCM16 48 kHz mono, Base64 in JSON;
@@ -81,7 +88,7 @@ dictation in the ChatGPT desktop app.
   the system default, a device lost mid-dictation replaced without ending the dictation, a
   health watch (no audio: recover; only zeros: tell the user). Audio is sent as captured: no noise suppression, gain or
   echo cancellation (see the measured facts).
-- English and Persian, detected automatically on both providers.
+- English and Persian, detected automatically unless the provider settings constrain the language.
 
 **Text**
 - While speaking, the live words are shown only in the pill. Nothing touches the text field.
@@ -103,7 +110,9 @@ dictation in the ChatGPT desktop app.
 - No animations or controls beyond these.
 
 **Reliability**
-- Retries replay buffered audio and must never lose or duplicate text.
+- Retries replay buffered audio and must never lose or duplicate text. After an ElevenLabs
+  automatic commit, a dropped connection ends the dictation with recognized text instead of
+  replaying audio without a dependable boundary.
 - Connection failures, timeouts, expired sign-ins, and microphone loss always return the app to
   a clean idle state with a short message in the pill.
 
@@ -127,7 +136,7 @@ dictation in the ChatGPT desktop app.
 
 ## Out of scope
 
-Local transcription models, batch transcription, voice activity detection, more shortcuts, Escape or Enter handling, native AppKit settings screens, customization beyond
+Local transcription models, batch transcription, app-side voice activity detection, more shortcuts, Escape or Enter handling, native AppKit settings screens, customization beyond
 the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), launch at login, automated tests, sounds.
 
 ## Measured facts the code relies on

@@ -1,0 +1,236 @@
+import Foundation
+import OpenTelemetryApi
+
+/// Scribe sends a base commit first, then optional timestamps and text transformations.
+@MainActor
+final class ElevenLabsStream: Transcriber {
+    private struct Segment {
+        let original: String
+        let receivedAt = Date()
+        var covered: Int?
+        var replacement: String?
+    }
+
+    private let config: Config
+    private let previousText: String
+    private var ready = false
+    private var automatic = false
+    private var replacementEvent: String?
+    private var segments: [Segment] = []
+    private var partial = ""
+    private var sent = 0
+    private var lastCommit = 0
+    private var pendingCommit: Int?
+    private var turnProbability = 0.0
+    private var finishing = false
+    private var stopCommitSent = false
+    private var deadline: Task<Void, Never>?
+    private var settle: Task<Void, Never>?
+    private var ended = false
+    private var sawCommit = false
+    private var missedRedaction = false
+    private var redacting: Bool { replacementEvent == "redacted_transcript" }
+    override var isReady: Bool { ready }
+
+    init(config: Config, previousText: String) {
+        self.config = config
+        self.previousText = String(previousText.suffix(50))
+    }
+
+    override func request() throws -> URLRequest {
+        let query = config.parameters(for: .elevenlabs).filter { $0.name != "keyterm_library" && $0.name != "token" }
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        let strategy = value("commit_strategy") ?? "manual"
+        let edit = value("transcript_edit")
+        let redact = value("entity_redaction") != nil
+        let configProblem = Problem(message: "Check the ElevenLabs options in Settings", retryable: false)
+        guard ["manual", "vad", "turn_prediction"].contains(strategy),
+              (edit?.count ?? 0) <= 2000,
+              edit == nil || (!redact && value("entity_detection") == nil) else { throw configProblem }
+        automatic = strategy != "manual"
+        if value("filter_background_audio")?.lowercased() == "true",
+           value("include_timestamps")?.lowercased() == "true" { throw configProblem }
+        replacementEvent = redact ? "redacted_transcript" : edit != nil ? "edited_transcript" : nil
+        if redact { logTranscripts = false }
+        var url = URLComponents(string: config.url(for: .elevenlabs))
+        url?.queryItems = query
+        guard let endpoint = url?.url, let key = config.key(for: .elevenlabs) else { throw configProblem }
+        var request = URLRequest(url: endpoint)
+        request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        return request
+    }
+
+    override func send(audio: Data) {
+        let first = sent == 0
+        sent += audio.count
+        var frame = audio
+        if frame.count < Provider.elevenlabs.frameBytes {
+            frame.append(Data(count: Provider.elevenlabs.frameBytes - frame.count))
+        }
+        let uncommitted = sent - lastCommit
+        let commit = !automatic && pendingCommit == nil &&
+            (uncommitted >= 28 * 32000 || (uncommitted >= 20 * 32000 && turnProbability >= 0.9))
+        if commit { pendingCommit = sent }
+        sendChunk(frame, commit: commit, first: first)
+    }
+
+    private func sendChunk(_ audio: Data, commit: Bool, first: Bool = false) {
+        var message: [String: Any] = ["message_type": "input_audio_chunk", "sample_rate": 16000,
+                                      "audio_base_64": audio.base64EncodedString(), "commit": commit]
+        if first {
+            if !previousText.isEmpty { message["previous_text"] = previousText }
+            let terms = config.parameters(for: .elevenlabs).filter { $0.name == "keyterm_library" }.compactMap(\.value)
+            if !terms.isEmpty { message["keyterm_library"] = terms }
+        }
+        guard let json = try? JSONSerialization.data(withJSONObject: message) else { return }
+        send(.string(String(decoding: json, as: UTF8.self)))
+    }
+
+    override func finish() {
+        finishing = true
+        if sent == 0 { return end(nil) }
+        requestStopCommit()
+        deadline = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, let self else { return }
+            let missingFinal = !self.stopCommitSent || self.pendingCommit != nil
+            self.end(missingFinal && (!self.automatic || !self.partial.isEmpty)
+                     ? Problem(message: "ElevenLabs did not finish", retryable: false) : nil)
+        }
+        finishIfDrained()
+    }
+
+    private func requestStopCommit() {
+        guard finishing, !stopCommitSent, pendingCommit == nil else { return }
+        stopCommitSent = true
+        if lastCommit < sent {
+            pendingCommit = sent
+            sendChunk(Data(), commit: true)
+        }
+    }
+
+    private func finishIfDrained() {
+        guard stopCommitSent, pendingCommit == nil, segments.isEmpty else { return }
+        if !automatic { return end(nil) }
+        // An automatic commit can cross the stop request. Drain late text before closing.
+        guard partial.isEmpty, settle == nil else { return }
+        settle = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, let self else { return }
+            self.end(nil)
+        }
+    }
+
+    override func received(_ message: [String: Any]) {
+        let type = message["message_type"] as? String ?? ""
+        let text = message["text"] as? String ?? ""
+        switch type {
+        case "session_started": ready = true
+        case "partial_transcript":
+            if !text.isEmpty { settle?.cancel(); settle = nil }
+            if !(finishing && text.isEmpty && pendingCommit != nil) { partial = text }
+            turnProbability = message["turn_probability"] as? Double ?? 0
+        case "committed_transcript":
+            if automatic { settle?.cancel(); settle = nil }
+            // Once automatic text is committed, the connection is no longer replayable.
+            // Release delivered audio rather than retaining it for the whole dictation.
+            if !text.isEmpty { sawCommit = true }
+            let covered: Int? = automatic ? (sawCommit ? sent : 0) : pendingCommit
+            if let boundary = pendingCommit {
+                if !automatic { lastCommit = boundary }
+                pendingCommit = nil
+            }
+            if covered == nil {
+                // An unsolicited commit has no known audio boundary. Do not replay it.
+                segments.append(Segment(original: text))
+                partial = ""
+                return end(Problem(message: "ElevenLabs committed audio unexpectedly", retryable: false))
+            }
+            segments.append(Segment(original: text, covered: covered))
+            if !text.isEmpty || !finishing { partial = "" }
+            turnProbability = 0
+            requestStopCommit()
+        case "edited_transcript", "redacted_transcript":
+            if type == replacementEvent {
+                let candidates = segments.indices.filter { segments[$0].replacement == nil }
+                let index = candidates.first { segments[$0].original == text }
+                    ?? candidates.first { segments[$0].original.split(whereSeparator: \.isWhitespace) == text.split(whereSeparator: \.isWhitespace) }
+                if let index {
+                    segments[index].replacement = message[type == "edited_transcript" ? "edited_text" : "redacted_text"] as? String
+                }
+            }
+        case "committed_transcript_with_timestamps", "diarized_transcript", "speakers_merged", "committed_transcript_entities": break
+        case "commit_throttled":
+            span?.addEvent(name: "commit_throttled")
+            pendingCommit = nil
+            if finishing, stopCommitSent {
+                if !automatic || !partial.isEmpty { return end(nil) }
+            } else {
+                requestStopCommit()
+            }
+        case "auth_error", "quota_exceeded", "unaccepted_terms", "invalid_request", "input_error", "chunk_size_exceeded":
+            return fail(type, retryable: false)
+        case "insufficient_audio_activity":
+            return fail(type, retryable: false)
+        case "rate_limited", "queue_overflow", "resource_exhausted", "transcriber_error", "session_time_limit_exceeded", "error":
+            return fail(type, retryable: true)
+        default: return
+        }
+        flush()
+        finishIfDrained()
+    }
+
+    private func flush(force: Bool = false) {
+        while let segment = segments.first,
+              force || (segment.covered != nil && (segment.original.isEmpty || replacementEvent == nil ||
+                  segment.replacement != nil || Date().timeIntervalSince(segment.receivedAt) >= 5)) {
+            segments.removeFirst()
+            let withheld = redacting && !segment.original.isEmpty && segment.replacement == nil
+            if withheld { missedRedaction = true }
+            onFinal?(segment.replacement ?? (withheld ? "[redaction unavailable]" : segment.original), segment.covered ?? lastCommit)
+        }
+        let live = redacting
+            ? segments.map { $0.replacement ?? ($0.original.isEmpty ? "" : "[redacting…]") } + (partial.isEmpty ? [] : ["[redacting…]"])
+            : segments.map { $0.replacement ?? $0.original } + [partial]
+        onInterim?(live.filter { !$0.isEmpty }.joined(separator: " "))
+    }
+
+    override func end(_ problem: Problem?) {
+        guard !ended else { return }
+        ended = true
+        deadline?.cancel()
+        settle?.cancel()
+        flush(force: true)
+        var problem = problem
+        if redacting, !partial.isEmpty {
+            missedRedaction = true
+            onFinal?("[redaction unavailable]", lastCommit)
+            onInterim?("")
+        }
+        if missedRedaction { problem = Problem(message: "ElevenLabs redaction unavailable", retryable: false) }
+        // Scribe does not document an exact automatic-commit audio byte offset. Replaying
+        // after a committed segment could insert it twice, so keep recognized text and stop.
+        if automatic, sawCommit { problem?.retryable = false }
+        super.end(problem)
+    }
+
+    private func fail(_ type: String, retryable: Bool) {
+        let message = switch type {
+        case "auth_error": "Check the ElevenLabs key in Settings"
+        case "quota_exceeded": "ElevenLabs quota exceeded"
+        case "unaccepted_terms": "Accept the Scribe terms in ElevenLabs"
+        case "insufficient_audio_activity": "ElevenLabs ended the stream after silence"
+        case "invalid_request", "input_error", "chunk_size_exceeded": "ElevenLabs rejected the config or audio"
+        default: "ElevenLabs connection interrupted"
+        }
+        end(Problem(message: message, retryable: retryable, errorType: type))
+    }
+
+    override func closed(status: Int) -> Problem {
+        switch status {
+        case 401, 403: Problem(message: "Check the ElevenLabs key in Settings", retryable: false)
+        case 400, 422: Problem(message: "ElevenLabs rejected the config", retryable: false)
+        default: Problem(message: "ElevenLabs connection lost")
+        }
+    }
+}
