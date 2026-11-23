@@ -50,7 +50,8 @@ Nothing leaves your Mac unless you configure an OTLP endpoint.
   and logs in OTLP/JSON Lines format (each file rotates at 10 MB, keeping 5 archives).
 - `~/.local/share/sayit2/usage_stats.json` keeps daily totals of recordings, audio seconds,
   words, and characters, broken down by model, language, hour of day, trigger mode, and target
-  app bundle ID.
+  app bundle ID. Open **Usage Stats…** in the menu bar to view a live yearly heatmap, peak
+  hours, and per-day stats in your default browser (served on `127.0.0.1` only).
 - No audio is ever saved. Transcript text and raw provider messages are omitted by default; set
   `telemetry.transcripts = true` in `~/.config/sayit2/config` to include them in the OTel log
   stream for debugging.

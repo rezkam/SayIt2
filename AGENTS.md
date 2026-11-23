@@ -17,7 +17,7 @@ dictation in the ChatGPT desktop app.
    words recognized so far must reach the text field. Text waits for its field as long as it
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,300 lines; keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 2,500 lines; keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -48,7 +48,7 @@ dictation in the ChatGPT desktop app.
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
 - Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3),
-  Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
+  Usage Stats…, Edit Config…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
@@ -111,6 +111,9 @@ dictation in the ChatGPT desktop app.
   `~/.local/share/sayit2/otel/{traces,metrics,logs}.jsonl` (rotated at 10 MB, 5 kept).
 - Daily usage in `~/.local/share/sayit2/usage_stats.json` (per day, by model, language, hour,
   trigger, and app; never pruned).
+- **Usage Stats…** in the menu starts a loopback-only HTTP server (`StatsServer.swift`, on
+  `127.0.0.1`) serving `Resources/stats.html` and live `usage_stats.json` updates, and opens it
+  in the default browser.
 - Local by default: nothing is sent anywhere unless `telemetry.otlp.endpoint` (and optional
   `telemetry.otlp.authorization`) is set in `~/.config/sayit2/config`, in which case traces,
   cumulative metrics, and logs are also POSTed as OTLP/HTTP JSON (local `metrics.jsonl` stays
@@ -123,7 +126,7 @@ dictation in the ChatGPT desktop app.
 ## Out of scope
 
 Local transcription models, batch transcription, voice activity detection, more shortcuts, Escape or Enter handling, settings screens, customization beyond
-the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), statistics views, launch at login, automated tests, sounds.
+the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), launch at login, automated tests, sounds.
 
 ## Measured facts the code relies on
 

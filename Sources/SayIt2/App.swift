@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Recordings that are still capturing or waiting for their final text. The newest is last.
     private var dictations: [Dictation] = []
     private let updates = Updates()
+    private let stats = StatsServer()
     private var iconTimer: Timer?
     private var iconEnergy: CGFloat = 0
     private var trusted: Bool?
@@ -142,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = provider == config.provider ? .on : .off
         }
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Usage Stats…", action: #selector(openStats), keyEquivalent: "")
         menu.addItem(withTitle: "Edit Config…", action: #selector(editConfig), keyEquivalent: ",")
         if trusted != true {
             menu.addItem(withTitle: "Grant Accessibility Access…", action: #selector(openAccessibility), keyEquivalent: "")
@@ -164,6 +166,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !Config.set("provider", to: provider.rawValue) { indicator.flash("Config file could not be read") }
         refresh()
     }
+
+    /// Opens the live usage dashboard in the default browser.
+    @objc private func openStats() { stats.open() }
 
     /// Opens the settings file in the default text editor.
     @objc private func editConfig() {
