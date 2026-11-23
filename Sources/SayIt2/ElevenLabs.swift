@@ -13,6 +13,9 @@ final class ElevenLabsStream: Transcriber {
 
     private let config: Config
     private let previousText: String
+    private var initialContext = ""
+    private var keytermLibrary: [String] = []
+    private var normalizeFullStops = true
     private var ready = false
     private var automatic = false
     private var replacementEvent: String?
@@ -34,27 +37,59 @@ final class ElevenLabsStream: Transcriber {
 
     init(config: Config, previousText: String) {
         self.config = config
-        self.previousText = String(previousText.suffix(50))
+        self.previousText = String(previousText.suffix(49))
     }
 
     override func request() throws -> URLRequest {
-        let query = config.parameters(for: .elevenlabs).filter { $0.name != "keyterm_library" && $0.name != "token" }
-        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        let options = config.parameters(for: .elevenlabs)
+        func value(_ name: String) -> String? { options.first { $0.name == name }?.value }
+        func enabled(_ name: String) -> Bool { value(name)?.lowercased() == "true" }
+        func invalid(_ message: String) -> Problem { Problem(message: message, retryable: false) }
         let strategy = value("commit_strategy") ?? "manual"
         let edit = value("transcript_edit")
         let redact = value("entity_redaction") != nil
-        let configProblem = Problem(message: "Check the ElevenLabs options in Settings", retryable: false)
-        guard ["manual", "vad", "turn_prediction"].contains(strategy),
-              (edit?.count ?? 0) <= 2000,
-              edit == nil || (!redact && value("entity_detection") == nil) else { throw configProblem }
+        let diarize = enabled("diarize")
+        let inferNames = enabled("infer_speaker_names")
+        let keyterms = options.filter { $0.name == "keyterms" }.compactMap(\.value)
+        keytermLibrary = options.filter { $0.name == "keyterm_library" }.compactMap(\.value)
+        initialContext = previousText.isEmpty ? (value("previous_text") ?? "") : previousText
+        normalizeFullStops = value("normalize_full_stops")?.lowercased() != "false"
+        guard ["manual", "vad", "turn_prediction"].contains(strategy), (edit?.count ?? 0) <= 2000 else {
+            throw invalid("Check the ElevenLabs commit strategy and editing instruction")
+        }
+        if edit != nil, redact || value("entity_detection") != nil {
+            throw invalid("ElevenLabs editing cannot be combined with entity detection or redaction")
+        }
+        if enabled("filter_background_audio"), enabled("include_timestamps") || diarize {
+            throw invalid("ElevenLabs background filtering cannot be combined with timestamps or speaker labels")
+        }
+        if inferNames, !diarize || redact {
+            throw invalid("ElevenLabs speaker names need speaker labels and no redaction")
+        }
+        if value("model_id") == "scribe_v2_realtime", strategy == "turn_prediction" || enabled("multilang_mode") || diarize || !keytermLibrary.isEmpty {
+            throw invalid("Selected ElevenLabs options require Scribe v3 Live")
+        }
+        if let interval = value("keepalive_interval_ms"), !(Int(interval).map { (500...10000).contains($0) } ?? false) {
+            throw invalid("ElevenLabs keepalive interval must be 500 to 10,000 ms")
+        }
+        if let seconds = value("vad_silence_threshold_secs"), !(Double(seconds).map { (0.192...3).contains($0) } ?? false) {
+            throw invalid("ElevenLabs VAD silence threshold must be 0.192 to 3 seconds")
+        }
+        if keyterms.count > 50 || keyterms.reduce(0, { $0 + $1.count }) > 1000 {
+            throw invalid("ElevenLabs keyterms allow up to 50 terms and 1,000 characters")
+        }
+        if keytermLibrary.count > 10000 || keytermLibrary.contains(where: { $0.count > 50 }) ||
+            keytermLibrary.reduce(0, { $0 + $1.utf8.count }) > 2_000_000 {
+            throw invalid("ElevenLabs keyterm library exceeds provider limits")
+        }
         automatic = strategy != "manual"
-        if value("filter_background_audio")?.lowercased() == "true",
-           value("include_timestamps")?.lowercased() == "true" { throw configProblem }
         replacementEvent = redact ? "redacted_transcript" : edit != nil ? "edited_transcript" : nil
+        let local = ["keyterm_library", "previous_text", "normalize_full_stops", "token"]
+        let query = options.filter { !local.contains($0.name) }
         if redact { logTranscripts = false }
         var url = URLComponents(string: config.url(for: .elevenlabs))
         url?.queryItems = query
-        guard let endpoint = url?.url, let key = config.key(for: .elevenlabs) else { throw configProblem }
+        guard let endpoint = url?.url, let key = config.key(for: .elevenlabs) else { throw invalid("Check the ElevenLabs key in Settings") }
         var request = URLRequest(url: endpoint)
         request.setValue(key, forHTTPHeaderField: "xi-api-key")
         return request
@@ -78,9 +113,8 @@ final class ElevenLabsStream: Transcriber {
         var message: [String: Any] = ["message_type": "input_audio_chunk", "sample_rate": 16000,
                                       "audio_base_64": audio.base64EncodedString(), "commit": commit]
         if first {
-            if !previousText.isEmpty { message["previous_text"] = previousText }
-            let terms = config.parameters(for: .elevenlabs).filter { $0.name == "keyterm_library" }.compactMap(\.value)
-            if !terms.isEmpty { message["keyterm_library"] = terms }
+            if !initialContext.isEmpty { message["previous_text"] = initialContext }
+            if !keytermLibrary.isEmpty { message["keyterm_library"] = keytermLibrary }
         }
         guard let json = try? JSONSerialization.data(withJSONObject: message) else { return }
         send(.string(String(decoding: json, as: UTF8.self)))
@@ -159,7 +193,7 @@ final class ElevenLabsStream: Transcriber {
                     segments[index].replacement = message[type == "edited_transcript" ? "edited_text" : "redacted_text"] as? String
                 }
             }
-        case "committed_transcript_with_timestamps", "diarized_transcript", "speakers_merged", "committed_transcript_entities": break
+        case "committed_transcript_with_timestamps", "diarized_transcript", "speakers_merged", "speaker_names", "committed_transcript_entities": break
         case "commit_throttled":
             span?.addEvent(name: "commit_throttled")
             pendingCommit = nil
@@ -187,12 +221,21 @@ final class ElevenLabsStream: Transcriber {
             segments.removeFirst()
             let withheld = redacting && !segment.original.isEmpty && segment.replacement == nil
             if withheld { missedRedaction = true }
-            onFinal?(segment.replacement ?? (withheld ? "[redaction unavailable]" : segment.original), segment.covered ?? lastCommit)
+            let output = segment.replacement ?? (withheld ? "[redaction unavailable]" : segment.original)
+            onFinal?(displayText(output), segment.covered ?? lastCommit)
         }
         let live = redacting
             ? segments.map { $0.replacement ?? ($0.original.isEmpty ? "" : "[redacting…]") } + (partial.isEmpty ? [] : ["[redacting…]"])
             : segments.map { $0.replacement ?? $0.original } + [partial]
-        onInterim?(live.filter { !$0.isEmpty }.joined(separator: " "))
+        onInterim?(live.filter { !$0.isEmpty }.map(displayText).joined(separator: " "))
+    }
+
+    private func displayText(_ text: String) -> String {
+        // Match replacements against raw provider text first. Leave East Asian and mixed scripts alone.
+        guard normalizeFullStops, text.contains("。"),
+              text.range(of: #"[[\p{Latin}\p{Arabic}]&&\p{L}]"#, options: .regularExpression) != nil,
+              text.range(of: #"[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}\p{Bopomofo}\p{Yi}]"#, options: .regularExpression) == nil else { return text }
+        return text.replacingOccurrences(of: "。", with: ".")
     }
 
     override func end(_ problem: Problem?) {

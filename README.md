@@ -51,8 +51,14 @@ file directly. Saved changes apply on the next dictation.
   Manual commits are the default. Voice activity and turn prediction segment text on the
   server. If an automatic stream drops after a commit, SayIt2 inserts the recognized text
   without replaying the audio, since the service does not give an exact replay boundary.
-  The config template lists more options. Provider-side logging is separate from the
-  local telemetry settings, and requesting zero retention may require an enterprise plan.
+  The Settings page exposes the realtime options, including model, language, segmentation,
+  keyterms, and metadata. Leave the primary language blank for automatic detection; set it
+  to `en` for English or `fa` for Persian if you want one language. Use multilingual mode
+  on Scribe v3 Live when switching languages within one dictation. `no_verbatim` removes
+  fillers and disfluencies; it is not a punctuation control. SayIt2 fixes Scribe's misplaced
+  `。` by default in Latin or Arabic-script text, leaving East Asian and mixed East Asian
+  text alone. Turn off **Fix Misplaced Full Stops** to keep raw punctuation. Provider-side
+  logging is separate from local telemetry; zero retention may require an enterprise plan.
 
 ## Telemetry and usage
 

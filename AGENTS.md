@@ -93,7 +93,10 @@ dictation in the ChatGPT desktop app.
 **Text**
 - While speaking, the live words are shown only in the pill. Nothing touches the text field.
 - When done, the provider's final text is inserted once, as the provider returned it
-  (punctuation kept). The final text always wins over the live text.
+  (punctuation kept). ElevenLabs alone normalizes a misplaced ideographic full stop in
+  Latin or Arabic-script text by default, excluding segments with East Asian script. This
+  is configurable, applies to the pill too, and leaves raw provider events unchanged. The
+  final text always wins over the live text.
 - Insertion uses Unicode key events, never the clipboard, and goes to the text field that had
   focus when dictation started. If focus is elsewhere, it waits until that field is back, with
   no time limit. If that field no longer exists, it inserts into whatever field of the app has

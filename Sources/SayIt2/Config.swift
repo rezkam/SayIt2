@@ -250,14 +250,20 @@ struct Config {
     elevenlabs.api_key =
     # Default: scribe_v3_live. Older realtime models may not support every option.
     # elevenlabs.model_id = scribe_v3_live
-    # Automatic language detection if unset. Repeat secondary_languages for hints.
+    # Automatic language detection if unset. With a primary language, repeat
+    # secondary_languages to restrict recognition. Multilingual mode (v3 Live)
+    # is for switching languages mid-dictation, not just selecting one language.
     # elevenlabs.language_code = en
     # elevenlabs.secondary_languages = fa
     # elevenlabs.multilang_mode = true
     # elevenlabs.include_language_detection = true
     # elevenlabs.keyterms = example term
     # elevenlabs.keyterm_library = example term
+    # Optional first-chunk context sent to ElevenLabs. Keep it under 50 characters.
+    # elevenlabs.previous_text = example context
     # elevenlabs.no_verbatim = true
+    # Local only: replace U+3002 with a period in Latin or Arabic-script text.
+    # elevenlabs.normalize_full_stops = true
     # Defaults to manual. Also accepts vad and turn_prediction. If an automatic stream
     # disconnects after recognizing a committed segment, it inserts its text without replay.
     # elevenlabs.commit_strategy = manual
@@ -265,10 +271,12 @@ struct Config {
     # elevenlabs.vad_silence_threshold_secs = 1.5
     # elevenlabs.min_speech_duration_ms = 100
     # elevenlabs.min_silence_duration_ms = 100
-    # Background filtering cannot be combined with timestamps.
+    # Background filtering cannot be combined with timestamps or speaker labels.
     # elevenlabs.filter_background_audio = true
     # elevenlabs.include_timestamps = true
     # elevenlabs.diarize = true
+    # Speaker names require diarize=true and cannot be combined with redaction.
+    # elevenlabs.infer_speaker_names = true
     # Editing cannot be combined with entity detection or redaction.
     # elevenlabs.transcript_edit = Write dates in ISO 8601 format
     # elevenlabs.entity_detection = all

@@ -56,19 +56,19 @@ final class Dashboard: @unchecked Sendable {
         }
     }
 
-    private func readRequest(_ conn: NWConnection, port: UInt16, buffer: Data, timeout: DispatchWorkItem) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] chunk, _, isComplete, _ in
+    private func readRequest(_ conn: NWConnection, port: UInt16, buffer: Data, timeout: DispatchWorkItem, remaining: Int = 0) {
+        conn.receive(minimumIncompleteLength: max(remaining, 1), maximumLength: max(remaining, 65536)) { [weak self] chunk, _, isComplete, _ in
             guard let self else { timeout.cancel(); conn.cancel(); return }
             var data = buffer
             if let chunk { data.append(chunk) }
-            guard data.count <= 65536 else {
-                timeout.cancel(); self.send(conn, "413 Payload Too Large", "text/plain", Data()); return
-            }
-            if let split = data.range(of: Data("\r\n\r\n".utf8)) {
+            if let split = data.prefix(65536).range(of: Data("\r\n\r\n".utf8)) {
                 let head = String(data: data[..<split.lowerBound], encoding: .utf8) ?? ""
                 let headers = self.parseHeaders(head)
                 let length = max(0, Int(headers["content-length"] ?? "0") ?? 0)
-                guard split.upperBound + length <= 65536 else {
+                // Only authenticated config writes need room for a 2 MB keyterm library and JSON escaping.
+                let configWrite = head.hasPrefix("POST /\(self.token)/config ") && self.validOrigin(headers, port: port)
+                let limit = configWrite ? 16 * 1024 * 1024 : 65536
+                guard length <= limit - split.upperBound else {
                     timeout.cancel(); self.send(conn, "413 Payload Too Large", "text/plain", Data()); return
                 }
                 if data.count >= split.upperBound + length {
@@ -77,6 +77,12 @@ final class Dashboard: @unchecked Sendable {
                     self.route(conn, port: port, head: head, headers: headers, body: body)
                     return
                 }
+                if !isComplete, chunk != nil {
+                    self.readRequest(conn, port: port, buffer: data, timeout: timeout, remaining: split.upperBound + length - data.count)
+                    return
+                }
+            } else if data.count >= 65536 {
+                timeout.cancel(); self.send(conn, "413 Payload Too Large", "text/plain", Data()); return
             }
             if isComplete || chunk == nil { timeout.cancel(); conn.cancel(); return }
             self.readRequest(conn, port: port, buffer: data, timeout: timeout)
@@ -94,13 +100,15 @@ final class Dashboard: @unchecked Sendable {
         return out
     }
 
+    private func validOrigin(_ headers: [String: String], port: UInt16) -> Bool {
+        port != 0 && headers["host"] == "127.0.0.1:\(port)" &&
+            (headers["origin"] == nil || headers["origin"] == "http://127.0.0.1:\(port)")
+    }
+
     private func route(_ conn: NWConnection, port: UInt16, head: String, headers: [String: String], body: Data) {
         let parts = (head.split(separator: "\r\n", maxSplits: 1).first ?? "").split(separator: " ")
         guard parts.count >= 2 else { send(conn, "400 Bad Request", "text/plain", Data()); return }
-        guard port != 0, headers["host"] == "127.0.0.1:\(port)" else {
-            send(conn, "403 Forbidden", "text/plain", Data()); return
-        }
-        if let origin = headers["origin"], origin != "http://127.0.0.1:\(port)" {
+        guard validOrigin(headers, port: port) else {
             send(conn, "403 Forbidden", "text/plain", Data()); return
         }
         let target = parts[1].split(separator: "?", maxSplits: 1).first.map(String.init) ?? ""
