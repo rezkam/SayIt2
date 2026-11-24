@@ -159,9 +159,11 @@ const panel = (title, body, opts = {}) =>
 
 function timeBuckets() {
   const step = obs.range <= 1 ? 3600 : 86400, now = Date.now() / 1000;
+  // The first bucket holds the start of the range, so no dictation in range falls outside the chart.
+  const from = now - obs.range * 86400;
   let start;
-  if (step === 3600) start = Math.floor((now - 86400) / 3600) * 3600 + 3600;
-  else { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - obs.range + 1); start = d.getTime() / 1000; }
+  if (step === 3600) start = Math.floor(from / 3600) * 3600;
+  else { const d = new Date(from * 1000); d.setHours(0, 0, 0, 0); start = d.getTime() / 1000; }
   const xs = [];
   for (let t = start; t <= now; t += step) xs.push(t);
   return { xs, step, index: t => Math.floor((t - start) / step) };
@@ -573,10 +575,9 @@ function pageMetrics() {
 
 async function obsMetricLoad() {
   const m = obs.metric, from = Date.now() / 1000 - obs.range * 86400;
-  if (!m.names.length) {
-    m.names = obsRows(await obsQuery("SELECT name, unit, count(*) AS n FROM samples GROUP BY name, unit ORDER BY name"));
-    if (!m.name && m.names.length) m.name = (m.names.find(x => x.name === "sayit2.release.duration") || m.names.find(x => x.name === "sayit2.finish.duration") || m.names[0]).name;
-  }
+  // Reread the metric names each time: a new app version or a first dictation adds metrics.
+  m.names = obsRows(await obsQuery("SELECT name, unit, count(*) AS n FROM samples GROUP BY name, unit ORDER BY name"));
+  if ((!m.name || !m.names.some(x => x.name === m.name)) && m.names.length) m.name = (m.names.find(x => x.name === "sayit2.release.duration") || m.names.find(x => x.name === "sayit2.finish.duration") || m.names[0]).name;
   if (!m.name) return;
   m.sql = "SELECT time_ns, value, labels, trace_id FROM samples WHERE name = ?1 AND time_ns >= ?2 * 1e9 ORDER BY time_ns";
   m.rows = obsRows(await obsQuery(m.sql, [m.name, from])).map(r => ({ t: r.time_ns / 1e9, value: r.value, labels: JSON.parse(r.labels || "{}"), trace: r.trace_id }));
@@ -720,7 +721,7 @@ function obsWire() {
       else obsOpenTrace(trace.dataset.trace);
       return;
     }
-    if (t.closest("[data-close-trace]")) { obs.trace = null; document.getElementById("trace-detail").innerHTML = ""; document.querySelectorAll("tr[data-trace]").forEach(r => r.classList.remove("sel")); return; }
+    if (t.closest("[data-close-trace]")) { obs.trace = null; const box = document.getElementById("trace-detail"); box.innerHTML = ""; box.className = ""; document.querySelectorAll("tr[data-trace]").forEach(r => r.classList.remove("sel")); return; }
     const span = t.closest(".wf-row[data-span]");
     if (span) { obs.traceSpan = span.dataset.span; obsOpenTrace(obs.trace, false); return; }
     const stage = t.closest("[data-stage]");

@@ -249,12 +249,15 @@ final class Dictation {
 
     private func render() {
         let text = currentText
+        let replayed = catchingUp
         if catchingUp {
             // A replay starts over; keep showing the earlier text until it catches up.
             guard text.count >= shown.count else { return }
             catchingUp = false
         }
-        noteRewrite(from: shown, to: text)
+        // A replay transcribes the same audio again on a new connection; that is a retry, not
+        // the provider rewriting what it showed, so it is not counted as a rewrite.
+        if !replayed { noteRewrite(from: shown, to: text) }
         shown = text
         paintPreview()
     }
