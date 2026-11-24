@@ -13,13 +13,17 @@ let telemetryQueue = DispatchQueue(label: "sayit2.telemetry", qos: .utility)
 /// `streams`, and `series` flatten them for the dashboard and for anyone with `sqlite3`.
 /// Written only on `telemetryQueue`; the dashboard reads through its own read-only connection.
 final class TelemetryStore: @unchecked Sendable {
-    /// Rows older than this are deleted when the database opens; daily usage totals stay forever.
+    /// Rows older than this are deleted at launch and every hour after; daily usage totals stay forever.
     static let retentionDays = 90
+    /// Logs beyond the newest this many rows are deleted too, so transcript logging cannot fill the
+    /// disk (about 60 MB of typical rows, like the earlier rotated log files).
+    static let maxLogRows = 200_000
     private static let osLog = os.Logger(subsystem: "sayit2", category: "telemetry")
 
     let url: URL
     private var db: OpaquePointer?
     private var unavailable = false
+    private var prunedAt = Date.distantPast
 
     init(url: URL) { self.url = url }
 
@@ -61,26 +65,37 @@ final class TelemetryStore: @unchecked Sendable {
         }
     }
 
-    /// Opens the database, creating the schema and dropping expired rows. On `telemetryQueue`.
+    /// Opens the database (creating the schema) once, and drops expired rows at most hourly, so a
+    /// SayIt2 that runs for weeks keeps the same limits as one just launched. On `telemetryQueue`.
     private func open() -> OpaquePointer? {
-        if let db { return db }
-        guard !unavailable else { return nil }
+        if db == nil, !unavailable { db = connect() }
+        guard let db else { return nil }
+        if Date().timeIntervalSince(prunedAt) >= 3600 {
+            prunedAt = Date()
+            let cutoff = Self.nanos(Date().addingTimeInterval(-Double(Self.retentionDays) * 86400))
+            let prune = ["spans": "end_ns", "span_events": "time_ns", "logs": "time_ns", "samples": "time_ns"]
+                .map { "DELETE FROM \($0.key) WHERE \($0.value) < \(cutoff);" }.joined()
+            let cap = "DELETE FROM logs WHERE rowid <= (SELECT rowid FROM logs ORDER BY rowid DESC LIMIT 1 OFFSET \(Self.maxLogRows));"
+            if sqlite3_exec(db, prune + cap, nil, nil, nil) != SQLITE_OK {
+                Self.osLog.error("telemetry pruning failed: \(String(cString: sqlite3_errmsg(db)), privacy: .public)")
+            }
+        }
+        return db
+    }
+
+    private func connect() -> OpaquePointer? {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         var handle: OpaquePointer?
-        let cutoff = Self.nanos(Date().addingTimeInterval(-Double(Self.retentionDays) * 86400))
-        let prune = ["spans": "end_ns", "span_events": "time_ns", "logs": "time_ns", "samples": "time_ns"]
-            .map { "DELETE FROM \($0.key) WHERE \($0.value) < \(cutoff);" }.joined()
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
-              sqlite3_exec(handle, Self.schema + prune, nil, nil, nil) == SQLITE_OK else {
+              sqlite3_busy_timeout(handle, 2000) == SQLITE_OK,
+              sqlite3_exec(handle, Self.schema, nil, nil, nil) == SQLITE_OK else {
             Self.osLog.error("telemetry database unavailable: \(String(cString: sqlite3_errmsg(handle)), privacy: .public)")
             sqlite3_close(handle)
             unavailable = true
             return nil
         }
         chmod(url.path, 0o600)
-        sqlite3_busy_timeout(handle, 2000)
-        db = handle
         return handle
     }
 

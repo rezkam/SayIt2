@@ -74,7 +74,7 @@ Nothing is ever sent anywhere.
 
 - `~/.local/share/sayit2/telemetry.sqlite` holds OpenTelemetry-shaped traces (`sayit2.dictation`,
   `sayit2.stream`, `sayit2.auth.renew`, `sayit2.insert`), trace-linked logs, and Prometheus-style
-  metric samples (name, labels, value, exemplar trace), kept for 90 days. The views `sessions`
+  metric samples (name, labels, value, exemplar trace), kept for 90 days (logs: at most the newest 200,000 rows). The views `sessions`
   and `streams` give one row per dictation and per connection.
 - `~/.local/share/sayit2/usage_stats.json` keeps daily totals of recordings, audio seconds,
   words, and characters, broken down by model, language, hour of day, trigger mode, and target

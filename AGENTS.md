@@ -127,7 +127,8 @@ dictation in the ChatGPT desktop app.
 
 **Telemetry and usage records**
 - One SQLite database in the system library, `~/.local/share/sayit2/telemetry.sqlite`, rows kept
-  90 days: OpenTelemetry-shaped `spans`, `span_events`, and `logs` (hex IDs, nanosecond times,
+  90 days and logs capped at the newest 200,000 rows (pruned at launch and hourly while
+  running): OpenTelemetry-shaped `spans`, `span_events`, and `logs` (hex IDs, nanosecond times,
   attributes as JSON), and Prometheus-style `samples` (metric name, labels, value, and the trace
   as exemplar), with the views `sessions` (one row per dictation), `streams` (one per
   connection), and `series`. Anyone can query it with `sqlite3`.
