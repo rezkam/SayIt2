@@ -1,6 +1,5 @@
 import AppKit
 import AVFoundation
-import ApplicationServices
 
 /// The menu bar item, and the wiring between hotkey, recordings, text insertion, and the pill.
 @MainActor
@@ -112,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             iconTimer?.invalidate()
             iconTimer = nil
             iconEnergy = 0
-            statusItem.button?.image = Self.icon(attention: attention != nil)
+            statusItem.button?.image = Self.icon()
         }
     }
 
@@ -194,8 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Monochrome Si² mark at rest; four bars that follow the voice while recording.
-    /// Dimmed with a badge when something is missing.
-    private static func icon(amounts: [CGFloat]? = nil, attention: Bool = false) -> NSImage {
+    private static func icon(amounts: [CGFloat]? = nil) -> NSImage {
         let image = NSImage(size: NSSize(width: 24, height: 18), flipped: false) { rect in
             if let amounts {
                 NSColor.black.setFill()
@@ -206,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 return true
             }
-            let color = NSColor.black.withAlphaComponent(attention ? 0.45 : 1)
+            let color = NSColor.black
             let baseFont = NSFont.systemFont(ofSize: 13.5, weight: .bold)
             let expFont = NSFont.systemFont(ofSize: 8.5, weight: .bold)
             let base = NSAttributedString(string: "Si", attributes: [.font: baseFont, .foregroundColor: color, .kern: -0.5])
@@ -217,10 +215,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let y = (rect.height - baseSize.height) / 2 - 0.5
             base.draw(at: NSPoint(x: x, y: y))
             exp.draw(at: NSPoint(x: x + baseSize.width + 0.5, y: y + baseSize.height * 0.44))
-            if attention {
-                NSColor.black.setFill()
-                NSBezierPath(ovalIn: NSRect(x: rect.width - 5.5, y: 2, width: 4.5, height: 4.5)).fill()
-            }
             return true
         }
         image.isTemplate = true   // drawn in the menu bar's own text color, black on a light menu bar

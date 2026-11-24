@@ -1,5 +1,4 @@
 import AppKit
-import ApplicationServices
 import OpenTelemetryApi
 
 /// Marks key events SayIt2 posts, so its own hotkey listener can ignore them.
@@ -58,7 +57,6 @@ final class Typist {
         guard let app = Self.focusedApp() else { return nil }
         let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()), parentSpan: parentSpan)
         jobs.append(job)
-        run()
         return job
     }
 
@@ -74,6 +72,7 @@ final class Typist {
         job.text = text.precomposedStringWithCanonicalMapping.unicodeScalars.map {
             $0.properties.generalCategory == .control ? " " : $0
         }
+        run()
     }
 
     static func focusedApp() -> pid_t? {
@@ -125,19 +124,17 @@ final class Typist {
         guard !running else { return }
         running = true
         Task {
-            while !jobs.isEmpty {
+            // Runs only while some job has text; a job still recording waits for `insert`.
+            while jobs.contains(where: { $0.text != nil }) {
                 guard let job = nextJob() else {
-                    let waiting = jobs.contains { $0.text != nil }
-                    if waiting {
-                        for pending in jobs where pending.text != nil && pending.waitStart == nil {
-                            pending.waitStart = Date()
-                            pending.waited = true
-                            pending.insertSpan?.addEvent(name: "focus_wait_started")
-                            Telemetry.event("waiting for target field focus", severity: .warn, span: pending.insertSpan)
-                        }
+                    for pending in jobs where pending.text != nil && pending.waitStart == nil {
+                        pending.waitStart = Date()
+                        pending.waited = true
+                        pending.insertSpan?.addEvent(name: "focus_wait_started")
+                        Telemetry.event("waiting for target field focus", severity: .warn, span: pending.insertSpan)
                     }
-                    setWaiting(waiting)
-                    try? await Task.sleep(for: .milliseconds(waiting ? 150 : 15))
+                    setWaiting(true)
+                    try? await Task.sleep(for: .milliseconds(150))
                     continue
                 }
                 if let start = job.waitStart {

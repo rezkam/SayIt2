@@ -11,12 +11,13 @@ enum Credentials {
     /// The token most recently handed to a connection, to tell whether someone else renewed it since.
     private static var lastUsed: String?
 
-    static var hasChatGPTLogin: Bool { tokens() != nil }
+    static var hasChatGPTLogin: Bool { (try? readAuth()) != nil }
 
     static func chatGPT() throws -> (token: String, account: String) {
-        guard let tokens = tokens(), let token = tokens["access_token"] as? String,
-              let account = tokens["account_id"] as? String
+        let auth = try readAuth()
+        guard let account = auth.tokens["account_id"] as? String
         else { throw Problem(message: "Sign in to ChatGPT", retryable: false, errorType: "missing_login") }
+        let token = auth.access
         lastUsed = token
         if expiry(of: token) <= Date() { throw Problem(message: "ChatGPT sign-in expired", retryable: false, errorType: "auth_expired", renewLogin: true) }
         return (token, account)
@@ -148,14 +149,8 @@ enum Credentials {
               let tokens = root["tokens"] as? [String: Any],
               let access = tokens["access_token"] as? String,
               let refresh = tokens["refresh_token"] as? String
-        else { throw Problem(message: "Sign in to ChatGPT", retryable: false) }
+        else { throw Problem(message: "Sign in to ChatGPT", retryable: false, errorType: "missing_login") }
         return (root, tokens, access, refresh)
-    }
-
-    private static func tokens() -> [String: Any]? {
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return root["tokens"] as? [String: Any]
     }
 
     private static func claims(of token: String) -> [String: Any]? {
