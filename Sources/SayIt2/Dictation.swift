@@ -322,8 +322,8 @@ final class Dictation {
     private func complete(problem: Problem?) {
         guard !ended else { return }
         close()
-        // After a failure, insert the best text received so far rather than losing the speech.
-        let raw = problem != nil && catchingUp ? shown : currentText
+        // A replay that failed, or ended without text, leaves the earlier text as the best there is.
+        let raw = catchingUp && (problem != nil || currentText.isEmpty) ? shown : currentText
         let text = config.replaceInFinalText(raw)
         if text != raw { span.setAttribute(key: "sayit2.text.replaced", value: true) }
         if !raw.isEmpty, !shownAtStop.isEmpty {

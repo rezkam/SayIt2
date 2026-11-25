@@ -90,7 +90,6 @@ final class Indicator {
             MainActor.assumeIsolated {
                 guard let self, !self.isShown else { return }
                 self.panel.orderOut(nil)
-                self.view.text = ""
             }
         })
     }
