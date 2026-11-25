@@ -48,7 +48,8 @@ dictation in the ChatGPT desktop app.
 
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
-- Menu: version and build, status or hint line, provider choice (ChatGPT, Deepgram Nova-3, ElevenLabs Scribe),
+- Menu: version and build, status or hint line, provider choice (ChatGPT only while signed in,
+  Deepgram Nova-3, ElevenLabs Scribe),
   Dashboard…, Settings…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
@@ -223,7 +224,6 @@ Do not bring these back without the user asking.
 | Putting back words Deepgram's final text skipped | The user prefers Deepgram's final text as is |
 | Stripping punctuation from ChatGPT text | The user wants text exactly as the provider returns it |
 | Deepgram key in the Keychain, set through a dialog | Replaced by the config file, which holds every setting |
-| Reading the ChatGPT sign-in read-only | The server ended a token early; SayIt2 now renews it itself |
 | Pill under the notch at the top of the screen | Moved to the bottom, above the Dock |
 | Red menu bar icon while recording | The icon stays black |
 | Auto-stop at 4 min 45 s for ChatGPT | Measured: sessions run past 5 minutes; stopping cut off speech |
@@ -233,7 +233,7 @@ Do not bring these back without the user asking.
 | Noise suppression (Apple voice isolation) and gain control | Made ChatGPT invent text from background noise |
 | AVAudioEngine for microphone capture | Recorded nothing from Bluetooth headphones; replaced by AVCaptureSession |
 | Clipboard and paste for insertion | Unicode key events reach every app tried and leave the clipboard alone |
-| Sharing the sign-in with the ChatGPT app and codex (`~/.codex/auth.json`) | Tied SayIt2 to that account's dictation limit; SayIt2 now has its own sign-in, which can be another account |
+| Using the ChatGPT app's or codex's sign-in | Tied SayIt2 to that account and its dictation limit; SayIt2 owns its sign-in, which can be another account |
 
 ## Working in this repository
 

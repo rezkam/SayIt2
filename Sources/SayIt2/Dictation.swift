@@ -295,7 +295,7 @@ final class Dictation {
                     guard let self, !self.ended else { return }
                     // Not renewed. If the server was only out of reach, the retry renews again.
                     self.renewedLogin = false
-                    self.lost(error as? Problem ?? Problem(message: "Sign in to ChatGPT again", retryable: false, errorType: "auth_rejected"))
+                    self.lost(error as? Problem ?? Problem(message: "Sign in to ChatGPT again in Settings", retryable: false, errorType: "auth_rejected"))
                 }
             }
             return

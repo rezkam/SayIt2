@@ -139,7 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: attention ?? "Hold or double-tap Right Option", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         let config = Config.load()
-        for provider in Provider.allCases {
+        // ChatGPT is offered only while SayIt2 is signed in to it.
+        for provider in Provider.allCases where provider != .chatgpt || Credentials.hasChatGPTLogin {
             let item = menu.addItem(withTitle: provider.title, action: #selector(chooseProvider(_:)), keyEquivalent: "")
             item.representedObject = provider
             item.state = provider == config.provider ? .on : .off

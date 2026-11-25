@@ -36,7 +36,8 @@ file directly. Saved changes apply on the next dictation.
 
 - **ChatGPT** uses SayIt2's own ChatGPT sign-in. In **Settings…**, under ChatGPT account, click
   **Sign in with ChatGPT** and finish on the ChatGPT page that opens in your browser. It can be a
-  different account from the one in the ChatGPT app or codex. The tokens are kept in
+  different account from the one in the ChatGPT app or codex. The menu offers ChatGPT only
+  while SayIt2 is signed in. The tokens are kept in
   `~/.config/sayit2/chatgpt.json`, readable only by you, and SayIt2 renews them when they
   expire. **Switch account** and **Sign out** are in the same place. The sign-in uses port
   1455, like `codex login`, so finish any codex sign-in first. When the account's dictation

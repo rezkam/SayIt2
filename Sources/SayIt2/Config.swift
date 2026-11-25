@@ -200,8 +200,8 @@ struct Config {
     provider = chatgpt
 
     # ---------- ChatGPT ----------
-    # Uses the sign-in of the ChatGPT desktop app on this Mac. The signed-in stream
-    # has no verified vocabulary hint option. Use the optional local rules below.
+    # Uses SayIt2's own ChatGPT sign-in: Settings, ChatGPT account. The menu offers
+    # ChatGPT only while signed in. The stream has no verified vocabulary hint option. Use the optional local rules below.
 
     # ---------- Local replacements for all providers ----------
     # No rules by default. One literal, case-sensitive rule per line. Words and phrases
