@@ -151,6 +151,14 @@ final class Dashboard: @unchecked Sendable {
         case ("GET", "config"):
             sendConfig(conn)
 
+        case ("POST", "chatgpt/sign-in"), ("POST", "chatgpt/sign-out"):
+            let signIn = target.hasSuffix("sign-in")
+            Task { @MainActor [weak self] in
+                if signIn { Credentials.startSignIn() } else { Credentials.signOut() }
+                self?.onConfigChange()
+                self?.sendConfigOnMain(conn)
+            }
+
         case ("POST", "config"):
             guard (headers["content-type"] ?? "").lowercased().hasPrefix("application/json"),
                   let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
@@ -191,7 +199,13 @@ final class Dashboard: @unchecked Sendable {
 
     @MainActor
     private func sendConfigOnMain(_ conn: NWConnection) {
-        let payload: [String: Any] = ["entries": Config.allEntries(), "chatgptSignedIn": Credentials.hasChatGPTLogin]
+        var chatgpt: [String: Any] = ["signedIn": Credentials.hasChatGPTLogin, "signingIn": Credentials.isSigningIn]
+        if let account = Credentials.accountSummary {
+            chatgpt["email"] = account.email
+            chatgpt["plan"] = account.plan
+        }
+        chatgpt["problem"] = Credentials.signInProblem
+        let payload: [String: Any] = ["entries": Config.allEntries(), "chatgpt": chatgpt]
         let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data("{}".utf8)
         queue.async { self.send(conn, "200 OK", "application/json; charset=utf-8", data) }
     }

@@ -34,9 +34,14 @@ Everything is stored in one plain text file, `~/.config/sayit2/config`. Open **S
 (`Cmd+,`) in the menu bar to edit settings per provider in your default browser, or edit the
 file directly. Saved changes apply on the next dictation.
 
-- **ChatGPT** uses the sign-in shared by the ChatGPT desktop app and codex on this Mac
-  (`~/.codex/auth.json`). SayIt2 renews it when it expires and saves it back there. This is a
-  private interface and may stop working. Its vocabulary hint support is not verified. The
+- **ChatGPT** uses SayIt2's own ChatGPT sign-in. In **Settings…**, under ChatGPT account, click
+  **Sign in with ChatGPT** and finish on the ChatGPT page that opens in your browser. It can be a
+  different account from the one in the ChatGPT app or codex. The tokens are kept in
+  `~/.config/sayit2/chatgpt.json`, readable only by you, and SayIt2 renews them when they
+  expire. **Switch account** and **Sign out** are in the same place. The sign-in uses port
+  1455, like `codex login`, so finish any codex sign-in first. When the account's dictation
+  allowance runs out, the pill says "ChatGPT dictation limit reached"; switch provider or
+  account. This is a private interface and may stop working. Its vocabulary hint support is not verified. The
   separate OpenAI transcription API's `keywords` setting is not sent to this interface.
 - **Deepgram** needs `deepgram.api_key`. Every other `deepgram.*` line is passed to Deepgram's
   live streaming API as a parameter (model, language, formatting, key terms and so on); the

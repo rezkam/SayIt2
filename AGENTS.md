@@ -18,7 +18,7 @@ dictation in the ChatGPT desktop app.
    takes. Only a dictation in which nothing was recognized may end without inserting anything.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,600 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,800 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -34,8 +34,8 @@ dictation in the ChatGPT desktop app.
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
    is set in the config, into the local logs (`~/.local/share/sayit2/telemetry.sqlite`).
    Telemetry never leaves the Mac: there is no exporter and no telemetry network call.
-   Never write keys or personal data anywhere but the config file, the shared ChatGPT sign-in
-   file, and `~/.local/share/sayit2/`.
+   Never write keys or personal data anywhere but the config file, SayIt2's ChatGPT sign-in
+   file (`~/.config/sayit2/chatgpt.json`), and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
    in the same commit.
 8. **Every build is versioned, and releases are tested first.** Bump `VERSION` for each build
@@ -68,9 +68,15 @@ dictation in the ChatGPT desktop app.
 - Never capture, consume, or repurpose any other key, including Escape and Enter.
 
 **Providers**
-- ChatGPT streaming, using the sign-in shared with the ChatGPT app and codex
-  (`~/.codex/auth.json`). SayIt2 renews it itself when the server rejects it, and writes the
-  renewed tokens back, so the user never has to open the ChatGPT app.
+- ChatGPT streaming, with SayIt2's own ChatGPT sign-in, which can be a different account from
+  the ChatGPT app's. It is started from the dashboard's Settings with ChatGPT's browser sign-in
+  (the OAuth flow codex uses: PKCE, the browser returns to `localhost:1455`) and kept in
+  `~/.config/sayit2/chatgpt.json` (mode 0600, the access and refresh tokens only). SayIt2
+  renews it only when the token has expired or the server rejects it, one renewal at a time
+  (refresh tokens are single use), and saves the renewed tokens. The dashboard shows the
+  account's email and plan and offers Switch account and Sign out.
+- ChatGPT's dictation usage limit ends the dictation without retrying, with the message
+  "ChatGPT dictation limit reached". Any error the server marks not retryable is not retried.
 - Deepgram Nova-3 streaming, with its API key and every parameter in the config file.
   `interim_results=true` (needed for live words) and `smart_format=true` by default.
 - ElevenLabs Scribe streaming, defaulting to `scribe_v3_live`, with its key and options in
@@ -137,7 +143,8 @@ dictation in the ChatGPT desktop app.
 - **Dashboard…** and **Settings…** in the menu start a loopback-only HTTP server
   (`Dashboard.swift`, on `127.0.0.1` with per-launch token, Host, and Origin checks) serving
   `Resources/dashboard.html` with three tabs: Stats (live `usage_stats.json`), Observability, and
-  Settings (`~/.config/sayit2/config` editing), in the default browser.
+  Settings (`~/.config/sayit2/config` editing and the ChatGPT sign-in, through
+  `POST chatgpt/sign-in` and `POST chatgpt/sign-out`), in the default browser.
 - The Observability tab (`Resources/observability.js`, charts by the vendored uPlot 1.6.32, MIT)
   reads the database through `POST query`, which runs one read-only statement (an authorizer
   refuses writes, ATTACH, and PRAGMA; queries stop after 5 s). Pages: Overview (takeaways naming
@@ -198,7 +205,12 @@ Measured with synthetic speech and one public-domain Persian clip, not a real vo
   44.1 kHz until recording ends). Expected for every app.
 - Retries: a replay can produce live text and still fail again, so the reconnect count per
   dictation (at most three) is never reset; otherwise a failing dictation looped forever.
-- Unknown: whether a running ChatGPT app re-reads `~/.codex/auth.json` before its own renewal.
+- When the account's dictation allowance is used up, the ChatGPT server ends the session with
+  a fatal `codex_dictation_usage_limit_reached` error marked not retryable, then refuses new
+  connections with HTTP 403 and an empty body. Seen on a free plan account; the server gives no
+  reset time, and the Codex usage endpoint does not report this limit.
+- OpenAI's sign-in page accepts codex's client id and `localhost:1455` redirect with any
+  `originator`; SayIt2 sends `codex_cli_rs`. Port 1455 is shared with `codex login`.
 
 ## Tried and rejected
 
@@ -221,6 +233,7 @@ Do not bring these back without the user asking.
 | Noise suppression (Apple voice isolation) and gain control | Made ChatGPT invent text from background noise |
 | AVAudioEngine for microphone capture | Recorded nothing from Bluetooth headphones; replaced by AVCaptureSession |
 | Clipboard and paste for insertion | Unicode key events reach every app tried and leave the clipboard alone |
+| Sharing the sign-in with the ChatGPT app and codex (`~/.codex/auth.json`) | Tied SayIt2 to that account's dictation limit; SayIt2 now has its own sign-in, which can be another account |
 
 ## Working in this repository
 

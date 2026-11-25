@@ -79,10 +79,16 @@ final class ChatGPTStream: Transcriber {
             span?.addEvent(name: "server_stop_requested")
             onStopRequested?()
         case "session.error":
-            let code = (message["error"] as? [String: Any])?["code"] as? String ?? message["code"] as? String ?? "session_error"
+            let error = message["error"] as? [String: Any]
+            let code = error?["code"] as? String ?? message["code"] as? String ?? "session_error"
             let fatal = message["fatal"] as? Bool == true
             Telemetry.event("ChatGPT session error: \(code), fatal \(fatal)", severity: fatal || !ready ? .error : .warn, span: span)
-            if fatal || !ready { end(Problem(message: "ChatGPT error", errorType: code)) }
+            // The account's dictation allowance is used up; reconnecting only gets refused.
+            let limit = code == "codex_dictation_usage_limit_reached"
+            if fatal || !ready {
+                end(Problem(message: limit ? "ChatGPT dictation limit reached" : "ChatGPT error",
+                            retryable: !limit && error?["retryable"] as? Bool != false, errorType: code))
+            }
         case "transcript.failed":
             let code = (message["error"] as? [String: Any])?["code"] as? String ?? "transcript_failed"
             Telemetry.event("ChatGPT transcript failed: \(code)", severity: .error, span: span)

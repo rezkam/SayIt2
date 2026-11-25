@@ -253,6 +253,7 @@
   #obs-providers button:not(.active) .dot { opacity: 0.3; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex: none; }
   .btn.small { padding: 3px 8px; font-size: 10.5px; }
+  .account-actions { display: flex; gap: 8px; margin-top: 12px; }
   .small { font-size: 11px; }
   .pcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .pcard { background: linear-gradient(180deg, #171717 0%, #111111 100%); border: 1px solid var(--border); border-top: 2px solid var(--pc); border-radius: 8px; padding: 14px 16px; }
@@ -587,8 +588,8 @@
               <span class="status-chip" id="status-chatgpt">CHECKING</span>
             </div>
             <div class="muted">
-              Uses the sign-in shared with the ChatGPT desktop app and codex (<code>~/.codex/auth.json</code>).
-              SayIt2 renews expired tokens automatically. See Vocabulary for optional local replacements.
+              Uses SayIt2's own ChatGPT sign-in, set up below. It can be a different account from the
+              ChatGPT app's. SayIt2 renews it automatically. See Vocabulary for optional local replacements.
             </div>
           </button>
           <button type="button" class="provider-card" id="card-deepgram" data-provider="deepgram">
@@ -608,6 +609,17 @@
             </div>
             <div class="muted">Realtime transcription with optional transcript editing.</div>
           </button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>CHATGPT <span class="accent">ACCOUNT</span></h2>
+          <span class="muted mono" id="chatgpt-account-state">CHECKING</span>
+        </div>
+        <div class="muted" id="chatgpt-account-text"></div>
+        <div class="account-actions">
+          <button type="button" class="btn primary" id="btn-chatgpt-sign-in">Sign in with ChatGPT</button>
+          <button type="button" class="btn" id="btn-chatgpt-sign-out" hidden>Sign out</button>
         </div>
       </div>
     </div>
@@ -1198,10 +1210,11 @@ function applyConfigData(cfg, forceText = false) {
     const id = card.dataset.provider, chat = id === "chatgpt";
     card.classList.toggle("active", provider === id);
     const status = document.getElementById("status-" + id);
-    const ready = chat ? cfg.chatgptSignedIn : !!last(id + ".api_key");
+    const ready = chat ? !!cfg.chatgpt?.signedIn : !!last(id + ".api_key");
     status.textContent = ready ? (chat ? "SIGNED IN" : "API KEY SET") : (chat ? "SIGN IN NEEDED" : "KEY MISSING");
     status.className = "status-chip " + (ready ? "ok" : "warn");
   });
+  applyChatGPT(cfg.chatgpt);
 
   document.querySelectorAll("[data-bool-key]").forEach(el => {
     if (forceText || !dirty || !el.closest("[data-save-with-form]")) {
@@ -1222,6 +1235,36 @@ function applyConfigData(cfg, forceText = false) {
     setDirty(false);
   }
 }
+
+let signInPoll = null;
+function applyChatGPT(c = {}) {
+  document.getElementById("chatgpt-account-state").textContent =
+    c.signingIn ? "WAITING FOR BROWSER" : c.signedIn ? "SIGNED IN" : "SIGNED OUT";
+  document.getElementById("chatgpt-account-text").textContent = c.signingIn
+    ? "Finish signing in on the ChatGPT page that opened in your browser."
+    : c.signedIn
+      ? "Signed in as " + (c.email || "an account without an email") + (c.plan ? " (" + c.plan + " plan)" : "") + "."
+      : (c.problem ? c.problem + ". " : "") +
+        "Sign in with the ChatGPT account SayIt2 should use. It can be different from the ChatGPT app's account.";
+  document.getElementById("btn-chatgpt-sign-in").textContent =
+    c.signingIn ? "Open sign-in again" : c.signedIn ? "Switch account" : "Sign in with ChatGPT";
+  document.getElementById("btn-chatgpt-sign-out").hidden = !c.signedIn;
+  if (c.signingIn && !signInPoll) signInPoll = setInterval(() => loadConfig(), 1500);
+  if (!c.signingIn && signInPoll) { clearInterval(signInPoll); signInPoll = null; }
+}
+
+async function chatgptAction(action) {
+  if (action === "sign-out" && !confirm("Sign SayIt2 out of ChatGPT?")) return;
+  try {
+    const res = await fetch("./chatgpt/" + action, { method: "POST" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    applyConfigData(await res.json());
+  } catch (_) {
+    showToast("CHATGPT " + action.toUpperCase().replace("-", " ") + " FAILED", true);
+  }
+}
+document.getElementById("btn-chatgpt-sign-in").addEventListener("click", () => chatgptAction("sign-in"));
+document.getElementById("btn-chatgpt-sign-out").addEventListener("click", () => chatgptAction("sign-out"));
 
 async function loadConfig(forceText = false) {
   try {

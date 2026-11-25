@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized { return "Allow Microphone Access…" }
         let config = Config.load()
         if let hint = config.missingKeyHint { return hint }
-        if config.provider == .chatgpt, !Credentials.hasChatGPTLogin { return "Sign in to ChatGPT (ChatGPT app or codex)" }
+        if config.provider == .chatgpt, !Credentials.hasChatGPTLogin { return "Sign in to ChatGPT in Settings…" }
         return nil
     }
 
