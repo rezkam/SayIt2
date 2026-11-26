@@ -26,7 +26,9 @@ final class Typist {
         fileprivate var waitStart: Date?
         fileprivate var waitedSeconds: Double = 0
         fileprivate var waited = false
-        fileprivate var copied = false
+        /// The text is on the clipboard already; it is never copied again, so a later copy of
+        /// the user's own is not overwritten.
+        var copied = false
         /// The recent-texts entry holding this job's text, marked if the text is discarded.
         var recentID: String?
         fileprivate var relaunched = false
@@ -84,9 +86,7 @@ final class Typist {
         }
         Telemetry.event("text discarded: \(reason)", severity: .warn, span: job.insertSpan)
         // Discarded text stays available: on the clipboard and in the recent texts.
-        if !job.copied, let text = job.text {
-            job.copied = History.copy(String(String.UnicodeScalarView(text)).trimmingCharacters(in: .whitespaces))
-        }
+        copy(job)
         if let id = job.recentID { History.mark(id, outcome: "discarded") }
         jobs.removeAll { $0 === job }
     }
@@ -151,6 +151,17 @@ final class Typist {
         return (value as! AXUIElement)
     }
 
+    /// Puts the job's text on the clipboard, once. Empty text never touches the clipboard.
+    @discardableResult
+    private func copy(_ job: Job) -> Bool {
+        guard !job.copied, let scalars = job.text else { return false }
+        job.copied = true
+        let text = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, History.copy(text) else { return false }
+        job.insertSpan?.addEvent(name: "text_copied")
+        return true
+    }
+
     private func run() {
         guard !running else { return }
         running = true
@@ -161,13 +172,8 @@ final class Typist {
                     // A text still waiting after a second goes to the clipboard once. A shorter
                     // blip (an app slow to answer, a window briefly in front) leaves it alone.
                     for pending in jobs where !pending.copied {
-                        guard let start = pending.waitStart, Date().timeIntervalSince(start) >= 1,
-                              let text = pending.text else { continue }
-                        pending.copied = true
-                        if History.copy(String(String.UnicodeScalarView(text)).trimmingCharacters(in: .whitespaces)) {
-                            pending.insertSpan?.addEvent(name: "text_copied")
-                            onCopied?()
-                        }
+                        guard let start = pending.waitStart, Date().timeIntervalSince(start) >= 1 else { continue }
+                        if copy(pending) { onCopied?() }
                     }
                     for pending in jobs where pending.text != nil && pending.waitStart == nil {
                         pending.waitStart = Date()

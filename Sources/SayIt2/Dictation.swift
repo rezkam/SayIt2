@@ -348,6 +348,7 @@ final class Dictation {
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
         // A failed dictation also leaves its text on the clipboard, in case it never reaches the field.
         let copied = problem != nil && !text.isEmpty && History.copy(text)
+        job.copied = copied
         if config.telemetryTranscripts {
             Telemetry.event(shown, name: "sayit2.transcript.live", span: span, unified: false)
             Telemetry.event(text, name: "sayit2.transcript.final", span: span, unified: false)
