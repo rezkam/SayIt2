@@ -34,7 +34,8 @@ dictation in the ChatGPT desktop app.
    dashboard (**Settings…** in the menu) or directly in the file, and apply on the next dictation.
 6. **Silent and private.** No sounds. No audio history. The clipboard is written only to hand
    the user a text: a recent text they pick, a failed dictation's text, or a text waiting for its
-   field. It is never read and never used for insertion. Usage data
+   field or discarded without being typed. Empty text never touches it, and each text is copied
+   at most once. It is never read and never used for insertion. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
    is set in the config, into the local logs (`~/.local/share/sayit2/telemetry.sqlite`).
