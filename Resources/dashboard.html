@@ -842,6 +842,10 @@
             <span class="hint">Empty means no replacements. One case-sensitive rule per line: Find =&gt; Replace. Words match whole words, and punctuation can match anywhere.</span>
             <span class="hint">Rules change only the finished text. They are not sent to the provider and do not change what you see while speaking.</span>
           </label>
+          <label class="field">Typing Wait (Seconds)
+            <input type="number" data-key="text.insert_timeout" min="1" step="1" placeholder="60">
+            <span class="hint">How long finished text waits for the field where you started dictating. After that, or when you start another dictation, it is discarded.</span>
+          </label>
         </div>
       </div>
     </div>

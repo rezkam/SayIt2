@@ -117,6 +117,8 @@ struct Config {
 
     /// When true, raw provider messages and final transcripts are written to the local logs.
     var telemetryTranscripts = false
+    /// Seconds finished text waits for its text field to have focus again before it is discarded.
+    var insertTimeout: TimeInterval = 60
 
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/sayit2/config")
 
@@ -132,6 +134,8 @@ struct Config {
                 config.provider = Provider(rawValue: value) ?? config.provider
             } else if key == "text.replace" {
                 config.replacements.append(value)
+            } else if key == "text.insert_timeout" {
+                if let seconds = TimeInterval(value), seconds > 0 { config.insertTimeout = seconds }
             } else if key == "telemetry.transcripts" {
                 config.telemetryTranscripts = value.lowercased() == "true"
             } else if let dot = key.firstIndex(of: "."), let provider = Provider(rawValue: String(key[..<dot])), provider != .chatgpt {
@@ -208,6 +212,12 @@ struct Config {
     # match at word edges, punctuation can match anywhere. If rules overlap at the same
     # position, the first listed wins. Rules do not run again on their own output.
     # text.replace = example term => Example Term
+
+    # ---------- Typing ----------
+    # The text is typed only into the field where the dictation started. If focus is elsewhere
+    # when the text is ready, it waits this many seconds for that field, then the text is
+    # discarded. Starting another dictation also discards text that is still waiting.
+    text.insert_timeout = 60
 
     # ---------- Deepgram ----------
     deepgram.api_key =

@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onStop = { [weak self] in self?.recording?.stop() }
         hotkey.onCancel = { [weak self] in self?.recording?.cancel() }
         typist.onChange = { [weak self] in self?.refresh() }
+        typist.onDiscard = { [weak self] message in self?.indicator.flash(message) }
         updates.onChange = { [weak self] in self?.refresh() }
         updates.start()
 
@@ -93,8 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         if let recording {
             indicator.show(recording.handsFree ? .handsFree : .listening)
-        } else if !dictations.isEmpty || typist.isBusy {
+        } else if !dictations.isEmpty {
             indicator.show(.finishing)
+        } else if typist.isBusy {
+            indicator.show(typist.isWaiting ? .waiting : .finishing)
         } else {
             indicator.show(.hidden)
         }

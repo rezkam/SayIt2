@@ -76,7 +76,7 @@ const SIGNALS = [
   { key: "finish", group: "latency", label: "Finalization", hint: "Last audio sent to the final text", better: "low", fmt: fmtS, calc: latency("finish_s"), win: "finalizes fastest" },
   { key: "first", group: "latency", label: "First words", hint: "First audio sent to the first live words (includes when you start speaking)", better: "low", fmt: fmtS, calc: latency("first_text_s"), win: "shows the first words soonest" },
   { key: "connect", group: "latency", label: "Connect", hint: "Connection request to WebSocket handshake done", better: "low", fmt: fmtS, calc: latency("connect_s"), win: "connects fastest" },
-  { key: "typing", group: "latency", label: "Typing", hint: "Final text typed into the field", fmt: fmtS, calc: latency("typing_s") },
+  { key: "typing", group: "latency", label: "Typing", hint: "Final text typed into the field, sessions without a focus wait", fmt: fmtS, calc: latency("typing_s") },
   { key: "tail", group: "latency", label: "Release to text p95", hint: "Slowest 5% of dictations", better: "low", fmt: fmtS, calc: l => { const v = nums(completed(l), "release_s"); return { value: quantile(v, 0.95), n: v.length }; }, win: "has the steadiest tail latency" },
   { key: "dictations", group: "traffic", label: "Dictations", fmt: fmtInt, calc: l => ({ value: l.length, n: l.length }) },
   { key: "audio", group: "traffic", label: "Audio", fmt: v => v == null ? "-" : fmtDuration(v), calc: l => ({ value: sum(nums(l, "audio_s")), n: l.length }) },
@@ -90,6 +90,7 @@ const SIGNALS = [
   { key: "backlog", group: "saturation", label: "Send backlog p95", hint: "Most audio waiting to go out during a dictation", better: "low", fmt: fmtS, calc: l => { const v = nums(l, "backlog_max_s"); return { value: quantile(v, 0.95), n: v.length }; }, win: "keeps the smallest send backlog" },
   { key: "reconnects", group: "saturation", label: "Reconnects per 100", better: "low", fmt: v => v == null ? "-" : v.toFixed(1), calc: l => { const d = decided(l); return { value: d.length ? 100 * sum(d.map(s => Math.max(0, s.attempts - 1))) / d.length : null, n: d.length }; }, win: "needs the fewest reconnects" },
   { key: "replay", group: "saturation", label: "Largest replay", hint: "Most audio resent after one reconnect", fmt: fmtS, calc: l => { const v = nums(l, "replay_max_s"); return { value: v.length ? Math.max(...v) : null, n: v.length }; } },
+  { key: "focusWait", group: "saturation", label: "Text waited for its field", fmt: fmtPct, calc: l => share(completed(l), s => s.focus_wait_s != null) },
   { key: "micRecoveries", group: "saturation", label: "Mic recoveries", fmt: fmtInt, calc: l => ({ value: sum(nums(l, "mic_recoveries")), n: l.length }) },
   { key: "dropouts", group: "saturation", label: "Mic dropouts", fmt: fmtInt, calc: l => { const v = nums(l, "mic_dropouts"); return { value: v.length ? sum(v) : null, n: v.length }; } },
   { key: "renewals", group: "saturation", label: "Sign-in renewals", fmt: fmtInt, calc: l => ({ value: sum(nums(l, "auth_renewals")), n: l.length }) },
@@ -404,15 +405,16 @@ function pageErrors(groups, list, streams) {
 }
 
 function pageSaturation(groups) {
-  return panel('SATURATION <span class="accent">SIGNALS</span>', scoreTable(groups, ["backlog", "reconnects", "replay", "micRecoveries", "dropouts", "renewals"]),
+  return panel('SATURATION <span class="accent">SIGNALS</span>', scoreTable(groups, ["backlog", "reconnects", "replay", "focusWait", "micRecoveries", "dropouts", "renewals"]),
     { sub: "HOW CLOSE THE CLIENT IS TO FALLING BEHIND" }) +
     '<div class="charts-2">' +
     panel("SEND BACKLOG P95", chart("sa-backlog", providerSeries(groups, l => quantile(nums(l, "backlog_max_s"), 0.95)), fmtS)) +
     panel("RECONNECTS PER 100", chart("sa-reconn", providerSeries(groups, l => signal("reconnects").calc(l).value), v => v.toFixed(0))) +
+    panel("FOCUS WAIT P95", chart("sa-wait", providerSeries(groups, l => quantile(nums(l, "focus_wait_s"), 0.95)), fmtS)) +
     panel("MIC DROPOUTS", chart("sa-drop", providerSeries(groups, l => { const v = nums(l, "mic_dropouts"); return v.length ? sum(v) : null; }), fmtInt)) +
     '</div>' +
     '<div class="panel note"><strong>Reading saturation for a client app.</strong> The send backlog is audio captured but not yet sent; it grows while the connection is down and must be replayed. ' +
-    'Reconnects and replays show a flaky network or provider. Mic dropouts are gaps in the audio the device delivered.</div>';
+    'Reconnects and replays show a flaky network or provider. Focus waits are finished text waiting for its field. Mic dropouts are gaps in the audio the device delivered.</div>';
 }
 
 const REWRITE_SIZES = [["rewrites_small", "1 word", "#a3e635"], ["rewrites_medium", "2 to 3 words", "#fb923c"], ["rewrites_large", "4 or more", "#ef4444"]];

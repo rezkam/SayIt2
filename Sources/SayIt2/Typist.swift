@@ -3,30 +3,47 @@ import AppKit
 /// Marks key events SayIt2 posts, so its own hotkey listener can ignore them.
 let syntheticEventTag: Int64 = 0x5341_5932
 
-/// Inserts each dictation's final text, in the order the dictations started, into whatever text
-/// field has keyboard focus when the text is ready.
+/// Inserts each dictation's final text into the text field that had focus when it started.
 ///
-/// A job is created when recording starts and receives its text once, at the end. Text is sent
-/// as Unicode key events, never through the clipboard. It never waits for focus to return to a
-/// particular field: the text goes where the user is now.
+/// A job is created when recording starts, to remember the field, and receives its text once,
+/// at the end. Text is sent as Unicode key events, never through the clipboard. While focus is
+/// somewhere else, insertion waits for it to come back, up to the job's time limit; then the
+/// text is discarded. Text is not queued: starting another dictation discards text still
+/// waiting for its field.
 @MainActor
 final class Typist {
     final class Job {
+        fileprivate var app: pid_t
         let bundle: String?
+        /// The field that had focus when dictation started, if the app exposes one.
+        fileprivate var field: AXUIElement?
         /// The text to insert; nil until the dictation has finished.
         fileprivate var text: [Unicode.Scalar]?
         fileprivate var sent = 0
         fileprivate var parentSpan: Span?
         fileprivate var insertSpan: Span?
+        fileprivate var waitStart: Date?
+        fileprivate var waitedSeconds: Double = 0
+        fileprivate var waited = false
+        fileprivate var relaunched = false
+        /// Longest total wait for the field, in seconds.
+        fileprivate let timeout: TimeInterval
 
-        fileprivate init(app: pid_t, parentSpan: Span?) {
+        fileprivate init(app: pid_t, field: AXUIElement?, parentSpan: Span?, timeout: TimeInterval) {
+            self.app = app
+            self.timeout = timeout
             self.bundle = NSRunningApplication(processIdentifier: app)?.bundleIdentifier
+            self.field = field
             self.parentSpan = parentSpan
         }
     }
 
-    /// Called when everything has been inserted.
+    /// Called when insertion starts or stops waiting, and when everything has been inserted.
     var onChange: (() -> Void)?
+    /// Called with a short message when text is discarded because its field never got focus back.
+    var onDiscard: ((String) -> Void)?
+    /// Focus is somewhere other than the target field, so insertion is paused until it returns.
+    private(set) var isWaiting = false
     var isBusy: Bool { !jobs.isEmpty }
 
     private var jobs: [Job] = []
@@ -35,16 +52,32 @@ final class Typist {
 
     init() {
         source?.localEventsSuppressionInterval = 0
-        // An app that does not answer must not freeze SayIt2: focus questions give up quickly.
+        // An app that does not answer must not freeze insertion: focus questions give up quickly.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
     }
 
-    /// Starts a job for the app that has keyboard focus right now.
-    func begin(parentSpan: Span? = nil) -> Job? {
+    /// Starts a job for the field that has keyboard focus right now, discarding text that is
+    /// still waiting for its field.
+    func begin(parentSpan: Span? = nil, timeout: TimeInterval) -> Job? {
         guard let app = Self.focusedApp() else { return nil }
-        let job = Job(app: app, parentSpan: parentSpan)
+        for waiting in jobs where waiting.text != nil && waiting.sent == 0 { discard(waiting, reason: "superseded") }
+        let job = Job(app: app, field: Self.element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()), parentSpan: parentSpan, timeout: timeout)
         jobs.append(job)
         return job
+    }
+
+    /// Drops a job's text without inserting it.
+    private func discard(_ job: Job, reason: String) {
+        if let start = job.waitStart { job.waitedSeconds += Date().timeIntervalSince(start) }
+        if let span = job.insertSpan {
+            span.setAttribute(key: "sayit2.insert.waited", value: job.waited)
+            if job.waited { span.setAttribute(key: "sayit2.insert.wait.seconds", value: job.waitedSeconds) }
+            span.setAttribute(key: "error.type", value: reason)
+            span.status = .error(description: "text discarded: \(reason)")
+            span.end()
+        }
+        Telemetry.event("text discarded: \(reason)", severity: .warn, span: job.insertSpan)
+        jobs.removeAll { $0 === job }
     }
 
     /// Hands over the job's final text. Empty text ends the job without inserting anything.
@@ -63,26 +96,93 @@ final class Typist {
     }
 
     static func focusedApp() -> pid_t? {
-        var value: CFTypeRef?
         var app: pid_t = 0
-        if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute as CFString, &value) == .success,
-           let value, CFGetTypeID(value) == AXUIElementGetTypeID(),
-           AXUIElementGetPid(value as! AXUIElement, &app) == .success { return app }
+        if let focused = element(kAXFocusedApplicationAttribute, of: AXUIElementCreateSystemWide()),
+           AXUIElementGetPid(focused, &app) == .success { return app }
         return NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    /// Whether keyboard focus is still in the field this job started in.
+    private static func isFocused(_ job: Job) -> Bool {
+        guard focusedApp() == job.app else { return false }
+        // An app that exposed no field at the start can only be checked as a whole.
+        guard let field = job.field else { return true }
+        guard let current = element(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()) else { return false }
+        if CFEqual(current, field) { return true }
+        // Some apps hand out a new object for the same field, so ask the original whether it has focus.
+        var value: CFTypeRef?
+        let answer = AXUIElementCopyAttributeValue(field, kAXFocusedAttribute as CFString, &value)
+        switch answer {
+        case .invalidUIElement:
+            // The original field no longer exists; fall back to the app, like after a relaunch.
+            job.field = nil
+            job.insertSpan?.addEvent(name: "field_fallback")
+            return true
+        case .cannotComplete:
+            // The app did not answer in time; wait and try again.
+            return false
+        case .success:
+            if let focused = value as? Bool { return focused }
+            fallthrough
+        default:
+            // The element cannot say whether it has focus; a different window is certainly a different field.
+            if let original = element(kAXWindowAttribute, of: field), let now = element(kAXWindowAttribute, of: current) {
+                return CFEqual(original, now)
+            }
+            return true
+        }
+    }
+
+    private static func element(_ attribute: String, of element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
     private func run() {
         guard !running else { return }
         running = true
         Task {
-            // Inserts jobs in start order; stops at a job still recording, whose `insert` resumes it.
-            while let job = jobs.first, let text = job.text {
-                guard job.sent < text.count else {
+            // Runs only while some job has text; a job still recording waits for `insert`.
+            while jobs.contains(where: { $0.text != nil }) {
+                guard let job = nextJob() else {
+                    for pending in jobs where pending.text != nil && pending.waitStart == nil {
+                        pending.waitStart = Date()
+                        pending.waited = true
+                        pending.insertSpan?.addEvent(name: "focus_wait_started")
+                        Telemetry.event("waiting for target field focus", severity: .warn, span: pending.insertSpan)
+                    }
+                    // Text waits only while it is the newest dictation and within its time limit.
+                    for pending in jobs {
+                        guard let text = pending.text, pending.sent < text.count else { continue }
+                        let waited = pending.waitedSeconds + Date().timeIntervalSince(pending.waitStart ?? Date())
+                        if pending !== jobs.last && pending.sent == 0 {
+                            discard(pending, reason: "superseded")
+                        } else if waited >= pending.timeout {
+                            discard(pending, reason: "focus_timeout")
+                            onDiscard?("Text not typed: its field never got focus back")
+                        }
+                    }
+                    setWaiting(jobs.contains { $0.text != nil })
+                    try? await Task.sleep(for: .milliseconds(150))
+                    continue
+                }
+                if let start = job.waitStart {
+                    job.waitedSeconds += Date().timeIntervalSince(start)
+                    job.waitStart = nil
+                    job.insertSpan?.addEvent(name: "focus_restored")
+                }
+                setWaiting(false)
+                guard let text = job.text, job.sent < text.count else {
                     if let span = job.insertSpan {
+                        span.setAttribute(key: "sayit2.insert.waited", value: job.waited)
+                        if job.waited { span.setAttribute(key: "sayit2.insert.wait.seconds", value: job.waitedSeconds) }
+                        if job.relaunched { span.setAttribute(key: "sayit2.insert.relaunched", value: true) }
                         span.status = .ok
                         span.end()
                     }
-                    jobs.removeFirst()
+                    jobs.removeAll { $0 === job }
                     continue
                 }
                 // Pack as many scalars as fit in 20 UTF-16 units, the safe size for one key event.
@@ -97,8 +197,40 @@ final class Typist {
                 try? await Task.sleep(for: .milliseconds(2))
             }
             running = false
+            isWaiting = false
             onChange?()
         }
+    }
+
+    /// The first job that can be inserted now: its text is ready, no earlier job for the same app
+    /// is still pending, and its field has focus.
+    private func nextJob() -> Job? {
+        var blocked: Set<pid_t> = []
+        for job in jobs {
+            relocate(job)
+            guard blocked.insert(job.app).inserted else { continue }
+            if let text = job.text, job.sent == text.count || Self.isFocused(job) { return job }
+        }
+        return nil
+    }
+
+    /// If the target app quit, waits for it to be opened again and then inserts into whatever
+    /// field of it has focus. An app that is still launching would drop the key events.
+    private func relocate(_ job: Job) {
+        guard NSRunningApplication(processIdentifier: job.app) == nil, let bundle = job.bundle,
+              let relaunched = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first,
+              relaunched.isFinishedLaunching else { return }
+        job.app = relaunched.processIdentifier
+        job.field = nil
+        job.relaunched = true
+        job.insertSpan?.addEvent(name: "app_relaunched")
+        Telemetry.event("target app relaunched", span: job.insertSpan)
+    }
+
+    private func setWaiting(_ waiting: Bool) {
+        guard isWaiting != waiting else { return }
+        isWaiting = waiting
+        onChange?()
     }
 
     /// Posts one key press carrying the text. Modifier flags are cleared so a held Right Option

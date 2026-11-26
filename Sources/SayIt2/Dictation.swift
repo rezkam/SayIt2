@@ -74,7 +74,7 @@ final class Dictation {
         if let hint = config.missingKeyHint {
             throw Self.failStart(span: span, error: Problem(message: hint, retryable: false, errorType: "missing_key"))
         }
-        guard let job = typist.begin(parentSpan: span) else {
+        guard let job = typist.begin(parentSpan: span, timeout: config.insertTimeout) else {
             throw Self.failStart(span: span, error: Problem(message: "No app to type into", retryable: false, errorType: "no_target_app"))
         }
         self.job = job

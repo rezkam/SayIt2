@@ -287,7 +287,9 @@ final class TelemetryStore: @unchecked Sendable {
             (SELECT st.connect_s FROM streams st WHERE st.trace_id = d.trace_id AND st.connect_s IS NOT NULL ORDER BY st.start_ns LIMIT 1) AS connect_s,
             (SELECT st.first_text_after_audio_s FROM streams st WHERE st.trace_id = d.trace_id AND st.first_text_after_audio_s IS NOT NULL ORDER BY st.start_ns LIMIT 1) AS first_text_s,
             (SELECT st.first_text_s FROM streams st WHERE st.trace_id = d.trace_id AND st.first_text_s IS NOT NULL ORDER BY st.start_ns LIMIT 1) AS first_text_connect_s,
-            (SELECT (i.end_ns - i.start_ns) / 1e9 FROM spans i WHERE i.trace_id = d.trace_id AND i.name = 'sayit2.insert' LIMIT 1) AS typing_s,
+            (SELECT (i.end_ns - i.start_ns) / 1e9 FROM spans i WHERE i.trace_id = d.trace_id AND i.name = 'sayit2.insert'
+                AND NOT coalesce(i.attributes ->> '$."sayit2.insert.waited"', 0) LIMIT 1) AS typing_s,
+            (SELECT i.attributes ->> '$."sayit2.insert.wait.seconds"' FROM spans i WHERE i.trace_id = d.trace_id AND i.name = 'sayit2.insert' LIMIT 1) AS focus_wait_s,
             (SELECT max(st.replay_s) FROM streams st WHERE st.trace_id = d.trace_id) AS replay_max_s,
             (SELECT count(*) FROM spans a WHERE a.trace_id = d.trace_id AND a.name = 'sayit2.auth.renew') AS auth_renewals,
             (SELECT count(*) FROM spans a WHERE a.trace_id = d.trace_id AND a.name = 'sayit2.auth.renew' AND a.status_code = 2) AS auth_failures

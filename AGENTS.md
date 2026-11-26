@@ -14,8 +14,10 @@ dictation in the ChatGPT desktop app.
 
 0. **Never lose text.** Whatever ends a dictation (release, tap, error, timeout, dropped
    connection, expired sign-in, microphone loss, focus away, the target app quitting), the
-   words recognized so far are typed wherever focus is when they are ready. Text never waits
-   for focus to return to a particular field. Only a dictation in which nothing was recognized may end without inserting anything.
+   words recognized so far must reach the text field. Text waits for its field up to
+   `text.insert_timeout` (60 s by default). Only a dictation in which nothing was recognized,
+   text whose field did not get focus back in that time, or text superseded by a new dictation
+   may end without inserting anything.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
    concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,800 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
@@ -110,8 +112,13 @@ dictation in the ChatGPT desktop app.
   waits for `committed_transcript` and any enabled edit or redaction. Scribe automatic modes
   also allow a short drain for a racing segment. A missing final has a bounded wait and uses
   the best available text as an error fallback, never as a confirmed final.
-- Insertion uses Unicode key events, never the clipboard, and goes to whatever text field has
-  focus when the final text is ready, at once. Dictations are inserted in the order they started.
+- Insertion uses Unicode key events, never the clipboard, and goes to the text field that had
+  focus when dictation started. If focus is elsewhere, it waits until that field is back. If
+  that field no longer exists, it inserts into whatever field of the app has focus. If the
+  target app quit, it waits for that app to be opened again and to finish launching. Every
+  wait ends after `text.insert_timeout` seconds; then the text is discarded with a short
+  message in the pill. Text is not queued: starting another dictation discards text still
+  waiting for its field.
 - If a dictation fails, the best text received so far is still inserted.
 
 **Look**
@@ -156,7 +163,7 @@ dictation in the ChatGPT desktop app.
   including start failures and microphone milestones), `sayit2.stream` (per provider attempt,
   with HTTP status, WebSocket close code, handshake time, time to first text from the first
   audio sent, and replayed audio), `sayit2.auth.renew` (ChatGPT OAuth refresh), and
-  `sayit2.insert` (text insertion). The root also records the streaming signals
+  `sayit2.insert` (text insertion and focus wait). The root also records the streaming signals
   research on streaming recognition recommends watching client side: release to final text,
   the largest send backlog, how much the final text differs from the live text at release,
   and input peak, loudness, clipping, and dropouts. Rewrites are counted the same way for every
@@ -224,8 +231,8 @@ Do not bring these back without the user asking.
 | Pill under the notch at the top of the screen | Moved to the bottom, above the Dock |
 | Red menu bar icon while recording | The icon stays black |
 | Auto-stop at 4 min 45 s for ChatGPT | Measured: sessions run past 5 minutes; stopping cut off speech |
-| Abandoning text after 2 minutes, or when dictating in another app | Lost text |
-| Waiting for focus to return to the original field | Text and the pill stayed stuck for minutes; text now goes where focus is |
+| Abandoning text after 2 minutes, or when dictating in another app | Lost text; replaced by a configurable wait (60 s default) and discarding only when a new dictation starts |
+| Typing into whatever field has focus instead of the original one | The user wants text only in the field where dictation started |
 | Replaying audio at 8.5x after a ChatGPT reconnect | ChatGPT's recognizer failed on long replays; capped at 3.2x |
 | A dot on the menu bar icon for an available update | Did not read as "new version"; updates show only in the menu |
 | Noise suppression (Apple voice isolation) and gain control | Made ChatGPT invent text from background noise |
