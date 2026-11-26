@@ -164,7 +164,8 @@ final class Dictation {
         let text = config.replaceInFinalText(shown)
         History.add(text, provider: provider.rawValue, outcome: "cancelled")
         span.addEvent(name: "escape_cancelled")
-        endSpan(reason: "cancelled", text: text, problem: nil)
+        // Usage counts typed text, and nothing was typed.
+        endSpan(reason: "cancelled", text: "", problem: nil)
         onEnd?(nil)
     }
 
