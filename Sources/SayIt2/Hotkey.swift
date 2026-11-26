@@ -2,14 +2,17 @@ import AppKit
 
 /// The Right Option gesture, with the timings of ChatGPT's desktop dictation:
 /// hold (100 ms) to dictate while held, double-tap (400 ms) for hands-free, tap to stop.
+/// Esc while recording discards the recording. Keys are only watched, never consumed.
 @MainActor
 final class Hotkey {
     static let keyCode: CGKeyCode = 61          // Right Option
+    private static let escape: UInt16 = 53
     private static let deviceMask: UInt = 0x40  // Right Option bit in the device-dependent flags
 
     var onStart: ((_ handsFree: Bool) -> Void)?
     var onStop: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onEscape: (() -> Void)?
     /// Whether a recording is running, and whether it is hands-free.
     var recording: () -> (active: Bool, handsFree: Bool) = { (false, false) }
 
@@ -35,6 +38,8 @@ final class Hotkey {
                 isDown = down
                 down ? pressed() : released()
             }
+        } else if event.type == .keyDown, event.keyCode == Self.escape, recording().active {
+            onEscape?()
         } else if event.type == .keyDown, isDown {
             otherKey()
         }

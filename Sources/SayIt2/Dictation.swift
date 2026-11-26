@@ -155,6 +155,19 @@ final class Dictation {
         onEnd?(nil)
     }
 
+    /// Esc while recording: ends at once and inserts nothing, even if words were recognized.
+    /// The words shown so far stay in the recent texts.
+    func discard() {
+        guard !ended else { return }
+        close()
+        typist.insert("", for: job)
+        let text = config.replaceInFinalText(shown)
+        History.add(text, provider: provider.rawValue, outcome: "cancelled")
+        span.addEvent(name: "escape_cancelled")
+        endSpan(reason: "cancelled", text: text, problem: nil)
+        onEnd?(nil)
+    }
+
     private func connect() {
         attempts += 1
         let stream: Transcriber = switch provider {
@@ -331,13 +344,16 @@ final class Dictation {
         }
         Telemetry.event("dictation finished: \(String(format: "%.1f", seconds(captured))) s of audio, \(text.count) characters",
                         severity: problem == nil ? .info : .error, span: span)
+        job.recentID = History.add(text, provider: provider.rawValue, outcome: problem == nil ? "inserted" : "failed")
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
+        // A failed dictation also leaves its text on the clipboard, in case it never reaches the field.
+        let copied = problem != nil && !text.isEmpty && History.copy(text)
         if config.telemetryTranscripts {
             Telemetry.event(shown, name: "sayit2.transcript.live", span: span, unified: false)
             Telemetry.event(text, name: "sayit2.transcript.final", span: span, unified: false)
         }
         endSpan(reason: problem == nil ? "completed" : "failed", text: text, problem: problem)
-        onEnd?(problem?.message)
+        onEnd?(problem.map { copied ? "\($0.message). Text copied" : $0.message })
     }
 
     private func endSpan(reason: String, text: String, problem: Problem?) {

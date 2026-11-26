@@ -16,11 +16,12 @@ dictation in the ChatGPT desktop app.
    connection, expired sign-in, microphone loss, focus away, the target app quitting), the
    words recognized so far must reach the text field. Text waits for its field up to
    `text.insert_timeout` (60 s by default). Only a dictation in which nothing was recognized,
-   text whose field did not get focus back in that time, or text superseded by a new dictation
-   may end without inserting anything.
+   one the user ends with Esc, text whose field did not get focus back in that time, or text
+   superseded by a new dictation may end without inserting anything. Text that is not inserted
+   still goes to the recent texts, and discarded text to the clipboard.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
-   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 3,800 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
+   concern. A protocol, service, or helper type needs at least two real users. The whole app is about 4,000 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
 2. **No tests.** No test files, test targets, test tooling, or test harnesses in the repository.
    The user tests by hand. Verify a change by building it and, where needed, by a one-off check
    outside the repository that is deleted afterwards.
@@ -31,11 +32,15 @@ dictation in the ChatGPT desktop app.
 5. **Settings live in one text file.** No native AppKit settings window. All settings are stored
    in `~/.config/sayit2/config`, explained in its template, editable through the local browser
    dashboard (**Settings…** in the menu) or directly in the file, and apply on the next dictation.
-6. **Silent and private.** No sounds. No clipboard use. No audio history. Usage data
+6. **Silent and private.** No sounds. No audio history. The clipboard is written only to hand
+   the user a text: a recent text they pick, a failed dictation's text, or a text waiting for its
+   field. It is never read and never used for insertion. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
    is set in the config, into the local logs (`~/.local/share/sayit2/telemetry.sqlite`).
    Telemetry never leaves the Mac: there is no exporter and no telemetry network call.
+   The text of the last 100 dictations is kept in `~/.local/share/sayit2/recent.json` (0600)
+   for the recent texts, until cleared in the dashboard.
    Never write keys or personal data anywhere but the config file, SayIt2's ChatGPT sign-in
    file (`~/.config/sayit2/chatgpt.json`), and `~/.local/share/sayit2/`.
 7. **Keep the docs true.** A change in behaviour updates this file and `README.md`
@@ -51,8 +56,9 @@ dictation in the ChatGPT desktop app.
 **App**
 - Menu bar app only: no window, no Dock icon. No launch at login.
 - Menu: version and build, status or hint line, provider choice (ChatGPT only while signed in,
-  Deepgram Nova-3, ElevenLabs Scribe),
-  Dashboard…, Settings…, permission shortcuts only while a permission is missing, Check for Updates…,
+  Deepgram Nova-3, ElevenLabs Scribe), Recent Texts (the last 10 dictations' text, newest first,
+  shown only when there is one; picking one copies it to the clipboard; Show All… opens the
+  dashboard's Recent tab), Dashboard…, Settings…, permission shortcuts only while a permission is missing, Check for Updates…,
   Quit. When a daily check finds a newer release, "Update to SayIt2 X.Y.Z…" appears at the top
   of the menu. The menu bar icon does not change and no window pops up on its own.
 - Installed from a notarized DMG on GitHub releases; updates through Sparkle, signed with the
@@ -68,7 +74,10 @@ dictation in the ChatGPT desktop app.
 - Another key pressed with Right Option (an Option symbol) cancels silently if nothing was
   recognized yet; otherwise the dictation finishes and inserts its text.
 - No time limit on a dictation.
-- Never capture, consume, or repurpose any other key, including Escape and Enter.
+- Esc while recording (held or hands-free) ends the dictation at once and inserts nothing,
+  even if words were recognized. Esc is only observed, not consumed: the app in front still
+  receives it. After recording has stopped, Esc does nothing.
+- Never capture, consume, or repurpose any other key, including Enter.
 
 **Providers**
 - ChatGPT streaming, with SayIt2's own ChatGPT sign-in, which can be a different account from
@@ -119,7 +128,13 @@ dictation in the ChatGPT desktop app.
   wait ends after `text.insert_timeout` seconds; then the text is discarded with a short
   message in the pill. Text is not queued: starting another dictation discards text still
   waiting for its field.
-- If a dictation fails, the best text received so far is still inserted.
+- If a dictation fails, the best text received so far is still inserted, and is also copied to
+  the clipboard; the pill's message ends with "Text copied".
+- When the text has waited a second for its field to have focus, it is copied to the clipboard
+  once ("Text copied. Waiting for its field"). Text discarded after the time limit or by a new
+  dictation is copied too if it was not yet, so it can still be pasted.
+- Every dictation with text is kept in the recent texts: inserted, failed, discarded, or
+  cancelled with Esc (the words shown when Esc was pressed).
 
 **Look**
 - The pill: black, just above the Dock, with five white bars that follow the voice and the live
@@ -147,7 +162,9 @@ dictation in the ChatGPT desktop app.
   trigger, and app; never pruned).
 - **Dashboard…** and **Settings…** in the menu start a loopback-only HTTP server
   (`Dashboard.swift`, on `127.0.0.1` with per-launch token, Host, and Origin checks) serving
-  `Resources/dashboard.html` with three tabs: Stats (live `usage_stats.json`), Observability, and
+  `Resources/dashboard.html` with four tabs: Stats (live `usage_stats.json`), Recent (all kept
+  texts with time, provider, and outcome, a Copy button each, and Clear, through `GET recent`,
+  `POST recent/copy`, and `POST recent/clear`), Observability, and
   Settings (`~/.config/sayit2/config` editing and the ChatGPT sign-in, through
   `POST chatgpt/sign-in` and `POST chatgpt/sign-out`), in the default browser.
 - The Observability tab (`Resources/observability.js`, charts by the vendored uPlot 1.6.32, MIT)
@@ -178,7 +195,7 @@ dictation in the ChatGPT desktop app.
 
 ## Out of scope
 
-Local transcription models, batch transcription, app-side voice activity detection, more shortcuts, Escape or Enter handling, native AppKit settings screens, customization beyond
+Local transcription models, batch transcription, app-side voice activity detection, more shortcuts, Enter handling, other Escape handling, native AppKit settings screens, customization beyond
 the config file, audio history (transcript text is opt-in only via `telemetry.transcripts`), launch at login, automated tests, sounds.
 
 ## Measured facts the code relies on

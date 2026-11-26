@@ -151,6 +151,26 @@ final class Dashboard: @unchecked Sendable {
         case ("GET", "config"):
             sendConfig(conn)
 
+        case ("GET", "recent"):
+            sendRecent(conn)
+
+        case ("POST", "recent/copy"), ("POST", "recent/clear"):
+            // A JSON body is required, so another website cannot send this as a plain form.
+            guard (headers["content-type"] ?? "").lowercased().hasPrefix("application/json"),
+                  let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                send(conn, "400 Bad Request", "application/json", Data()); return
+            }
+            let id = obj["id"] as? String
+            let clear = target.hasSuffix("clear")
+            Task { @MainActor [weak self] in
+                if clear {
+                    History.clear()
+                } else if let text = History.entries.first(where: { $0.id == id })?.text {
+                    History.copy(text)
+                }
+                self?.sendRecent(conn)
+            }
+
         case ("POST", "chatgpt/sign-in"), ("POST", "chatgpt/sign-out"):
             let signIn = target.hasSuffix("sign-in")
             Task { @MainActor [weak self] in
@@ -191,6 +211,13 @@ final class Dashboard: @unchecked Sendable {
             }
         }
         send(conn, "200 OK", "application/json; charset=utf-8", Data("{\"schemaVersion\":1,\"days\":{}}".utf8))
+    }
+
+    private func sendRecent(_ conn: NWConnection) {
+        Task { @MainActor [weak self] in
+            let data = History.json
+            self?.queue.async { self?.send(conn, "200 OK", "application/json; charset=utf-8", data) }
+        }
     }
 
     private func sendConfig(_ conn: NWConnection) {

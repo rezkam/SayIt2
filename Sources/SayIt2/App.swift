@@ -31,8 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onStart = { [weak self] handsFree in self?.start(handsFree: handsFree) }
         hotkey.onStop = { [weak self] in self?.recording?.stop() }
         hotkey.onCancel = { [weak self] in self?.recording?.cancel() }
+        hotkey.onEscape = { [weak self] in self?.recording?.discard() }
         typist.onChange = { [weak self] in self?.refresh() }
         typist.onDiscard = { [weak self] message in self?.indicator.flash(message) }
+        typist.onCopied = { [weak self] in self?.indicator.flash("Text copied. Waiting for its field") }
         updates.onChange = { [weak self] in self?.refresh() }
         updates.start()
 
@@ -147,6 +149,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = provider == config.provider ? .on : .off
         }
         menu.addItem(.separator())
+        if !History.entries.isEmpty {
+            let recent = NSMenu()
+            for entry in History.entries.prefix(10) {
+                let line = entry.text.split(whereSeparator: \.isNewline).joined(separator: " ")
+                let item = recent.addItem(withTitle: line.count > 60 ? line.prefix(59) + "…" : line,
+                                          action: #selector(copyRecent(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = entry.text
+                item.toolTip = entry.text
+            }
+            recent.addItem(.separator())
+            recent.addItem(withTitle: "Show All…", action: #selector(openDashboardRecent), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Recent Texts", action: nil, keyEquivalent: "").submenu = recent
+        }
         menu.addItem(withTitle: "Dashboard…", action: #selector(openDashboard), keyEquivalent: "")
         menu.addItem(withTitle: "Settings…", action: #selector(openDashboardSettings), keyEquivalent: ",")
         if trusted != true {
@@ -171,7 +187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
+    /// Copies a recent text to the clipboard for pasting.
+    @objc private func copyRecent(_ item: NSMenuItem) {
+        guard let text = item.representedObject as? String else { return }
+        History.copy(text)
+    }
+
     @objc private func openDashboard() { dashboard.open(section: "stats") }
+    @objc private func openDashboardRecent() { dashboard.open(section: "recent") }
     @objc private func openDashboardSettings() { dashboard.open(section: "settings") }
 
     @objc private func openAccessibility() { openSettings("Privacy_Accessibility") }

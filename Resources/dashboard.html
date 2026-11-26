@@ -254,6 +254,12 @@
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; flex: none; }
   .btn.small { padding: 3px 8px; font-size: 10.5px; }
   .account-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .recent-item { display: flex; gap: 14px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--border); }
+  .recent-item:first-child { border-top: none; padding-top: 0; }
+  .recent-body { flex: 1; min-width: 0; }
+  .recent-meta { font: 11px var(--mono); color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+  .recent-meta .failed, .recent-meta .discarded, .recent-meta .cancelled { color: var(--danger); }
+  .recent-text { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
   .small { font-size: 11px; }
   .pcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .pcard { background: linear-gradient(180deg, #171717 0%, #111111 100%); border: 1px solid var(--border); border-top: 2px solid var(--pc); border-radius: 8px; padding: 14px 16px; }
@@ -451,6 +457,7 @@
     </div>
     <nav class="nav-tabs" aria-label="Dashboard sections">
       <button type="button" data-tab="stats" class="active">Stats</button>
+      <button type="button" data-tab="recent">Recent</button>
       <button type="button" data-tab="observe">Observability</button>
       <button type="button" data-tab="settings">Settings</button>
     </nav>
@@ -529,6 +536,20 @@
       <div class="panel"><div class="panel-head"><h2>BY LANGUAGE</h2></div><div id="by-lang"></div></div>
       <div class="panel"><div class="panel-head"><h2>BY DAY OF WEEK</h2></div><div id="by-dow"></div></div>
       <div class="panel"><div class="panel-head"><h2>BY APP</h2></div><div id="by-app"></div></div>
+    </div>
+  </section>
+
+  <!-- RECENT VIEW: the text of recent dictations, from ./recent -->
+  <section id="view-recent" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>RECENT <span class="accent">TEXTS</span></h2>
+        <div class="row">
+          <span class="muted mono" id="recent-count"></span>
+          <button type="button" class="btn small" id="btn-recent-clear" hidden>Clear</button>
+        </div>
+      </div>
+      <div id="recent-list"></div>
     </div>
   </section>
 
@@ -928,13 +949,53 @@ function showToast(msg, isErr) {
 
 // --- Tabs ---
 function setTab(tab) {
-  activeTab = ["stats", "observe", "settings"].includes(tab) ? tab : "stats";
+  activeTab = ["stats", "recent", "observe", "settings"].includes(tab) ? tab : "stats";
   document.querySelectorAll(".nav-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === activeTab));
-  for (const t of ["stats", "observe", "settings"]) document.getElementById("view-" + t).classList.toggle("active", activeTab === t);
+  for (const t of ["stats", "recent", "observe", "settings"]) document.getElementById("view-" + t).classList.toggle("active", activeTab === t);
   if (location.hash !== "#" + activeTab) history.replaceState(null, "", "#" + activeTab);
   if (activeTab === "settings" && !dirty) loadConfig();
   if (activeTab === "observe") obsActivate();
+  if (activeTab === "recent") loadRecent();
 }
+
+// --- Recent texts ---
+let recentJSON = "";
+function renderRecent(entries) {
+  const json = JSON.stringify(entries);
+  if (json === recentJSON) return;
+  recentJSON = json;
+  document.getElementById("recent-count").textContent = entries.length ? entries.length + " KEPT" : "";
+  document.getElementById("btn-recent-clear").hidden = !entries.length;
+  const outcome = { inserted: "inserted", failed: "failed, copied", discarded: "not typed, copied", cancelled: "cancelled with esc" };
+  document.getElementById("recent-list").innerHTML = entries.length ? entries.map(e =>
+    '<div class="recent-item"><div class="recent-body"><div class="recent-meta">' +
+    esc(new Date(e.time).toLocaleString()) + " &middot; " + esc(e.provider) +
+    ' &middot; <span class="' + esc(e.outcome) + '">' + esc(outcome[e.outcome] || e.outcome) + "</span></div>" +
+    '<div class="recent-text" dir="auto">' + esc(e.text) + "</div></div>" +
+    '<button type="button" class="btn small" data-copy="' + esc(e.id) + '">Copy</button></div>'
+  ).join("") : '<div class="muted">No dictations yet. The text of each dictation appears here.</div>';
+}
+async function recentRequest(path, body) {
+  try {
+    const res = await fetch("./" + path, body ? {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    } : { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    renderRecent((await res.json()).entries || []);
+    return true;
+  } catch (e) {
+    showToast("Could not reach SayIt2", true);
+    return false;
+  }
+}
+const loadRecent = () => recentRequest("recent");
+document.getElementById("recent-list").addEventListener("click", async e => {
+  const id = e.target.closest("[data-copy]")?.dataset.copy;
+  if (id && await recentRequest("recent/copy", { id })) showToast("Copied");
+});
+document.getElementById("btn-recent-clear").onclick = async () => {
+  if (confirm("Delete all recent texts?") && await recentRequest("recent/clear", {})) showToast("Cleared");
+};
 function setSettingsSub(sub) {
   document.querySelectorAll("#settings-sub-seg button").forEach(b => {
     const selected = b.dataset.sub === sub;
@@ -1399,7 +1460,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { po
 setSettingsSub("providers");
 setTab(location.hash.slice(1) || "stats");
 pollStats();
-setInterval(() => { pollStats(); obsPoll(); }, 3000);
+setInterval(() => { pollStats(); obsPoll(); if (activeTab === "recent" && !document.hidden) loadRecent(); }, 3000);
 </script>
 </body>
 </html>

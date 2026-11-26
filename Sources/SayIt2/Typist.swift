@@ -9,7 +9,8 @@ let syntheticEventTag: Int64 = 0x5341_5932
 /// at the end. Text is sent as Unicode key events, never through the clipboard. While focus is
 /// somewhere else, insertion waits for it to come back, up to the job's time limit; then the
 /// text is discarded. Text is not queued: starting another dictation discards text still
-/// waiting for its field.
+/// waiting for its field. Text that waited a second, or was discarded, is also copied to the
+/// clipboard, so it can be pasted elsewhere.
 @MainActor
 final class Typist {
     final class Job {
@@ -25,6 +26,9 @@ final class Typist {
         fileprivate var waitStart: Date?
         fileprivate var waitedSeconds: Double = 0
         fileprivate var waited = false
+        fileprivate var copied = false
+        /// The recent-texts entry holding this job's text, marked if the text is discarded.
+        var recentID: String?
         fileprivate var relaunched = false
         /// Longest total wait for the field, in seconds.
         fileprivate let timeout: TimeInterval
@@ -42,6 +46,8 @@ final class Typist {
     var onChange: (() -> Void)?
     /// Called with a short message when text is discarded because its field never got focus back.
     var onDiscard: ((String) -> Void)?
+    /// Called when a finished text could not be typed right away and was copied instead.
+    var onCopied: (() -> Void)?
     /// Focus is somewhere other than the target field, so insertion is paused until it returns.
     private(set) var isWaiting = false
     var isBusy: Bool { !jobs.isEmpty }
@@ -77,6 +83,11 @@ final class Typist {
             span.end()
         }
         Telemetry.event("text discarded: \(reason)", severity: .warn, span: job.insertSpan)
+        // Discarded text stays available: on the clipboard and in the recent texts.
+        if !job.copied, let text = job.text {
+            job.copied = History.copy(String(String.UnicodeScalarView(text)).trimmingCharacters(in: .whitespaces))
+        }
+        if let id = job.recentID { History.mark(id, outcome: "discarded") }
         jobs.removeAll { $0 === job }
     }
 
@@ -147,6 +158,17 @@ final class Typist {
             // Runs only while some job has text; a job still recording waits for `insert`.
             while jobs.contains(where: { $0.text != nil }) {
                 guard let job = nextJob() else {
+                    // A text still waiting after a second goes to the clipboard once. A shorter
+                    // blip (an app slow to answer, a window briefly in front) leaves it alone.
+                    for pending in jobs where !pending.copied {
+                        guard let start = pending.waitStart, Date().timeIntervalSince(start) >= 1,
+                              let text = pending.text else { continue }
+                        pending.copied = true
+                        if History.copy(String(String.UnicodeScalarView(text)).trimmingCharacters(in: .whitespaces)) {
+                            pending.insertSpan?.addEvent(name: "text_copied")
+                            onCopied?()
+                        }
+                    }
                     for pending in jobs where pending.text != nil && pending.waitStart == nil {
                         pending.waitStart = Date()
                         pending.waited = true
@@ -161,7 +183,7 @@ final class Typist {
                             discard(pending, reason: "superseded")
                         } else if waited >= pending.timeout {
                             discard(pending, reason: "focus_timeout")
-                            onDiscard?("Text not typed: its field never got focus back")
+                            onDiscard?("Text not typed, its field never got focus back. Text copied")
                         }
                     }
                     setWaiting(jobs.contains { $0.text != nil })
