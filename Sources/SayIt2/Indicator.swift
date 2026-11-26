@@ -3,7 +3,7 @@ import AppKit
 /// The black pill just above the Dock while SayIt2 is listening: voice bars and the live words.
 @MainActor
 final class Indicator {
-    enum State: Equatable { case hidden, listening, handsFree, finishing, waiting }
+    enum State: Equatable { case hidden, listening, handsFree, finishing }
 
     /// Voice level, 0...1.
     var level: Float = 0
@@ -138,7 +138,7 @@ private final class PillView: NSView {
         paragraph.lineBreakMode = .byWordWrapping
         paragraph.alignment = .natural
         paragraph.baseWritingDirection = persian ? .rightToLeft : .natural   // keep mixed Persian and English right to left
-        let fade = message == nil && (state == .finishing || state == .waiting)
+        let fade = message == nil && state == .finishing
         let font = persian ? persianFont : self.font
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font, .paragraphStyle: paragraph,
@@ -215,9 +215,6 @@ private final class PillView: NSView {
             } else if state == .finishing {
                 amount = 0.1 + 0.5 * (0.5 + 0.5 * sin(time * 7 - Double(index) * 0.7))
                 alpha = 0.75
-            } else if state == .waiting {
-                amount = 0.2
-                alpha = 0.4
             } else {
                 amount = 0.15 + 0.85 * abs(sin(time * rates[index] + phases[index])) * energy
             }

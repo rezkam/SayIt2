@@ -8,8 +8,7 @@ No window, no sounds, no clipboard use.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
 - Pick **ChatGPT**, **Deepgram Nova-3**, or **ElevenLabs Scribe** in the menu bar menu. SayIt2 records from the
   system default microphone and recovers to the current default if it is unplugged.
-- If focus has left the text field when the text is ready (another app, window, or field),
-  it waits and inserts the text when you return to that field.
+- The text is typed wherever focus is when it is ready, even if you moved to another field or app.
 
 ## Install
 
@@ -118,10 +117,7 @@ jq -r '.days | to_entries[] | .key as $d | .value.byModel | to_entries[] | "\($d
   brief contractions. A nonempty final from any provider can still be shorter and is used as
   returned. On stop, SayIt2 waits for each provider's final response before typing. If the
   provider fails or never confirms it, SayIt2 inserts what it has and shows a short error.
-- If you move the cursor before the text arrives, it is inserted at the new position.
-- If the original text field no longer exists when the text arrives, it is inserted into whatever
-  field of that app has focus.
-- Text still waiting for its field is lost if SayIt2 itself quits.
+- If you move the cursor or switch apps before the text arrives, it is typed at the new position.
 - Dictating with Bluetooth headphones' microphone switches them to call mode, which lowers
   playback quality until the dictation ends (true of every app). Choose the built-in microphone
   in macOS settings to keep music quality.

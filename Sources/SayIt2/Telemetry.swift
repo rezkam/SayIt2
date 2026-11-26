@@ -144,11 +144,10 @@ final class Telemetry: @unchecked Sendable {
             ]
         ),
         "sayit2.insert": (
-            keys: ["sayit2.insert.waited"],
+            keys: [],
             rules: [
                 .duration("sayit2.insert.duration"),
                 .count("sayit2.insert.count", unit: "{insertion}"),
-                .attribute("sayit2.insert.wait.seconds", "sayit2.insert.wait.duration", unit: "s"),
             ]
         ),
         "sayit2.auth.renew": (

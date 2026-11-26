@@ -93,10 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         if let recording {
             indicator.show(recording.handsFree ? .handsFree : .listening)
-        } else if !dictations.isEmpty {
+        } else if !dictations.isEmpty || typist.isBusy {
             indicator.show(.finishing)
-        } else if typist.isBusy {
-            indicator.show(typist.isWaiting ? .waiting : .finishing)
         } else {
             indicator.show(.hidden)
         }
