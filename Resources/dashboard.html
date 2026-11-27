@@ -966,7 +966,7 @@ function renderRecent(entries) {
   recentJSON = json;
   document.getElementById("recent-count").textContent = entries.length ? entries.length + " KEPT" : "";
   document.getElementById("btn-recent-clear").hidden = !entries.length;
-  const outcome = { inserted: "inserted", failed: "failed, copied", discarded: "not typed, copied", cancelled: "cancelled with esc" };
+  const outcome = { inserted: "inserted", failed: "failed", discarded: "not typed", cancelled: "cancelled with esc" };
   document.getElementById("recent-list").innerHTML = entries.length ? entries.map(e =>
     '<div class="recent-item"><div class="recent-body"><div class="recent-meta">' +
     esc(new Date(e.time).toLocaleString()) + " &middot; " + esc(e.provider) +

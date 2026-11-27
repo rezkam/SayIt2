@@ -34,7 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onEscape = { [weak self] in self?.recording?.discard() }
         typist.onChange = { [weak self] in self?.refresh() }
         typist.onDiscard = { [weak self] message in self?.indicator.flash(message) }
-        typist.onCopied = { [weak self] in self?.indicator.flash("Text copied. Waiting for its field") }
         updates.onChange = { [weak self] in self?.refresh() }
         updates.start()
 

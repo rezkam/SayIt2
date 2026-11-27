@@ -18,7 +18,7 @@ dictation in the ChatGPT desktop app.
    `text.insert_timeout` (60 s by default). Only a dictation in which nothing was recognized,
    one the user ends with Esc, text whose field did not get focus back in that time, or text
    superseded by a new dictation may end without inserting anything. Text that is not inserted
-   still goes to the recent texts, and discarded text to the clipboard.
+   remains available in Recent Texts.
    When redaction is enabled, unredacted text is withheld and marked if redaction fails.
 1. **Small and readable.** Native Swift and AppKit. No layers of abstraction. One file per
    concern. A protocol, service, or helper type needs at least two real users. The whole app is about 4,000 lines of Swift (plus `Resources/dashboard.html` and `Resources/observability.js`); keep it near that.
@@ -32,10 +32,9 @@ dictation in the ChatGPT desktop app.
 5. **Settings live in one text file.** No native AppKit settings window. All settings are stored
    in `~/.config/sayit2/config`, explained in its template, editable through the local browser
    dashboard (**Settings…** in the menu) or directly in the file, and apply on the next dictation.
-6. **Silent and private.** No sounds. No audio history. The clipboard is written only to hand
-   the user a text: a recent text they pick, a failed dictation's text, or a text waiting for its
-   field or discarded without being typed. Empty text never touches it, and each text is copied
-   at most once. It is never read and never used for insertion. Usage data
+6. **Silent and private.** No sounds. No audio history. Only two actions write to the clipboard:
+   picking an item in the Recent Texts menu and clicking Copy on that entry in the dashboard.
+   SayIt2 never reads the clipboard or uses it for insertion or failure recovery. Usage data
    (durations, counts, provider, model, target app bundle ID) is written locally under
    `~/.local/share/sayit2/`. Transcript text is written only when `telemetry.transcripts = true`
    is set in the config, into the local logs (`~/.local/share/sayit2/telemetry.sqlite`).
@@ -129,11 +128,8 @@ dictation in the ChatGPT desktop app.
   wait ends after `text.insert_timeout` seconds; then the text is discarded with a short
   message in the pill. Text is not queued: starting another dictation discards text still
   waiting for its field.
-- If a dictation fails, the best text received so far is still inserted, and is also copied to
-  the clipboard; the pill's message ends with "Text copied".
-- When the text has waited a second for its field to have focus, it is copied to the clipboard
-  once ("Text copied. Waiting for its field"). Text discarded after the time limit or by a new
-  dictation is copied too if it was not yet, so it can still be pasted.
+- If a dictation fails, SayIt2 still attempts to insert the best text received. A failure,
+  focus wait, timeout, or superseded insertion never changes the clipboard.
 - Every dictation with text is kept in the recent texts: inserted, failed, discarded, or
   cancelled with Esc (the words shown when Esc was pressed).
 

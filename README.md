@@ -2,7 +2,7 @@
 
 A minimal macOS menu bar dictation app. Hold Right Option and speak: your words appear in a
 small pill above the Dock, and when you stop, the text is inserted into the app you were in.
-No window, no sounds. The clipboard is touched only to hand you a text.
+No window, no sounds. Your clipboard stays unchanged unless you pick a Recent Texts menu item or click Copy in the dashboard.
 
 - **Hold** Right Option to dictate, release to finish.
 - **Double-tap** Right Option for hands-free, tap once more to finish.
@@ -10,14 +10,12 @@ No window, no sounds. The clipboard is touched only to hand you a text.
 - **Recent Texts** in the menu lists the last 10 dictations; pick one to copy it to the
   clipboard. **Show All…** opens the dashboard's Recent tab with up to 100, each with a Copy
   button, and Clear. They are kept in `~/.local/share/sayit2/recent.json`, readable only by you.
-- If a dictation fails, its text is still inserted and also copied to the clipboard.
+- If dictation fails, SayIt2 still tries to insert the words it recognized. If it cannot type them, you can retrieve them from **Recent Texts**.
 - Pick **ChatGPT**, **Deepgram Nova-3**, or **ElevenLabs Scribe** in the menu bar menu. SayIt2 records from the
   system default microphone and recovers to the current default if it is unplugged.
 - If focus has left the text field when the text is ready (another app, window, or field),
-  it waits and inserts the text when you return to that field. After a second of waiting it also
-  copies the text to the clipboard, so you can paste it elsewhere. After `text.insert_timeout`
-  seconds (60 by default), or when you start another dictation, the waiting text is discarded;
-  it stays on the clipboard and in Recent Texts.
+  SayIt2 waits for that field to regain focus. After `text.insert_timeout` seconds (60 by
+  default), or when you start another dictation, it stops waiting. The text stays in **Recent Texts**.
 
 ## Install
 

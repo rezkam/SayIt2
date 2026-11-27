@@ -347,15 +347,12 @@ final class Dictation {
                         severity: problem == nil ? .info : .error, span: span)
         job.recentID = History.add(text, provider: provider.rawValue, outcome: problem == nil ? "inserted" : "failed")
         typist.insert(text.isEmpty ? "" : text + " ", for: job)
-        // A failed dictation also leaves its text on the clipboard, in case it never reaches the field.
-        let copied = problem != nil && !text.isEmpty && History.copy(text)
-        job.copied = copied
         if config.telemetryTranscripts {
             Telemetry.event(shown, name: "sayit2.transcript.live", span: span, unified: false)
             Telemetry.event(text, name: "sayit2.transcript.final", span: span, unified: false)
         }
         endSpan(reason: problem == nil ? "completed" : "failed", text: text, problem: problem)
-        onEnd?(problem.map { copied ? "\($0.message). Text copied" : $0.message })
+        onEnd?(problem?.message)
     }
 
     private func endSpan(reason: String, text: String, problem: Problem?) {
